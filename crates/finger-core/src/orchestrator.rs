@@ -97,6 +97,30 @@ pub fn orchestrate(
             match cmd {
                 Command::Toggle(idx) => {
                     let mut entries = state.lock().unwrap();
+
+                    // Rescan windows for all entries (discover new, remove dead)
+                    for entry in entries.iter_mut() {
+                        let windows = platform.get_instances(&entry.window_pattern);
+
+                        // Remove instances whose windows no longer exist
+                        entry.instances.retain(|inst| {
+                            let exists = windows.iter().any(|(wid, _)| *wid == inst.window_id);
+                            if !exists {
+                                if let Some(mut bot) = lua_bots.remove(&inst.id) {
+                                    bot.stop().ok();
+                                }
+                            }
+                            exists
+                        });
+
+                        // Add new instances for newly discovered windows
+                        for (wid, title) in &windows {
+                            if !entry.instances.iter().any(|i| i.window_id == *wid) {
+                                entry.instances.push(Instance::new(&entry.name, *wid, title.clone()));
+                            }
+                        }
+                    }
+
                     if let Some(entry) = entries.get_mut(idx) {
                         entry.enabled = !entry.enabled;
                         let name = entry.name.clone();
@@ -148,6 +172,10 @@ pub fn orchestrate(
                 }
                 for inst in entry.instances.iter_mut() {
                     if Instant::now() < inst.next_tick {
+                        // Still update status while waiting for cooldown
+                        if let Some(lua_bot) = lua_bots.get(&inst.id) {
+                            inst.status = lua_bot.get_status().unwrap_or_else(|_| "waiting".to_string());
+                        }
                         continue;
                     }
                     if let Some(lua_bot) = lua_bots.get(&inst.id) {
@@ -160,7 +188,7 @@ pub fn orchestrate(
                         // Tick
                         match lua_bot.tick() {
                             Ok(cooldown_ms) => {
-                                let cd = cooldown_ms.unwrap_or(1000);
+                                let cd = cooldown_ms.unwrap_or(0);
                                 inst.next_tick = Instant::now() + Duration::from_millis(cd);
                             }
                             Err(e) => {

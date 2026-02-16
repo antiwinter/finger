@@ -71,7 +71,7 @@ fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
                     marker_width += 1;
                 } else if val == 0x7F {
                     state = State::M1;
-                    marker_width = 1;
+                    marker_width += 1;
                 } else {
                     state = State::Start;
                 }
@@ -99,17 +99,8 @@ fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
                 if val == 0x00 {
                     state = State::Done;
                     break;
-                } else {
-                    // False end, go back to decode
-                    state = State::Decode;
-                    if let Some(last) = decoded.last_mut() {
-                        if last.c == val {
-                            last.n += 1;
-                        } else {
-                            decoded.push(DecodedChar { c: val, n: 1 });
-                        }
-                    }
                 }
+                // Stay in End1, absorb trailing marker bytes
             }
             State::Done => break,
         }

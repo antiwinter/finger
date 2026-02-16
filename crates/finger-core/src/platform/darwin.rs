@@ -71,8 +71,13 @@ impl Platform for DarwinPlatform {
 
                 let title = if !name.is_empty() { &name } else { &owner };
 
-                if !title.is_empty()
-                    && re.is_match(title)
+                // Match against title, name, and owner individually (like JS version)
+                let is_match = !title.is_empty()
+                    && (re.is_match(title)
+                        || (!name.is_empty() && re.is_match(&name))
+                        || (!owner.is_empty() && re.is_match(&owner)));
+
+                if is_match
                     && layer == Some(0)
                     && window_id.is_some()
                 {

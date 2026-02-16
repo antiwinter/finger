@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
 use anyhow::{Result, anyhow};
 use mlua::prelude::*;
@@ -12,7 +13,7 @@ use crate::logger;
 
 /// Wrapper around a WindowHandle for Lua userdata.
 struct LuaWindow {
-    inner: RefCell<Box<dyn WindowHandle>>,
+    inner: Rc<RefCell<Box<dyn WindowHandle>>>,
 }
 
 impl LuaUserData for LuaWindow {
@@ -55,6 +56,7 @@ impl LuaUserData for LuaWindow {
 pub struct LuaBot {
     lua: Lua,
     bot_key: LuaRegistryKey,
+    win: Rc<RefCell<Box<dyn WindowHandle>>>,
 }
 
 /// Helper to convert mlua::Error -> anyhow::Error
@@ -98,16 +100,18 @@ impl LuaBot {
 
         let bot_key = lua.create_registry_value(table.clone()).map_err(lua_err)?;
 
+        let win = Rc::new(RefCell::new(win_handle));
+
         // Create win userdata and call start(win)
         let win_ud = lua.create_userdata(LuaWindow {
-            inner: RefCell::new(win_handle),
+            inner: Rc::clone(&win),
         }).map_err(lua_err)?;
 
         if let Ok(start_fn) = table.get::<LuaFunction>("start") {
             start_fn.call::<()>(win_ud).map_err(lua_err)?;
         }
 
-        Ok(Self { lua, bot_key })
+        Ok(Self { lua, bot_key, win })
     }
 
     /// Call tick() -> Option<cooldown_ms>
@@ -152,10 +156,9 @@ impl LuaBot {
         Ok(())
     }
 
-    /// Activate the window through Lua (calls win:activate())
+    /// Activate the window (bring to foreground).
     pub fn activate(&self) {
-        // The win is stored inside the Lua state by the bot's start() function.
-        // The bot's tick() should call win:activate() if needed.
+        self.win.borrow_mut().activate();
     }
 }
 
