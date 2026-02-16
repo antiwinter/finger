@@ -4,7 +4,7 @@
 local win = nil
 local state = 0       -- 0 = waiting rally, 1 = waiting hk yell
 local count = 0       -- character position counter
-local last_login = 0  -- anti-AFK timer
+local last_login = 0  -- anti-AFK timer (0 = trigger on first tick)
 
 local function logout()
     -- F.log("[Rally] logout")
@@ -24,7 +24,7 @@ local function switch_char(n, key)
         win:tap(key)
     end
     win:tap("enter")
-    last_login = os.clock()
+    last_login = os.time()
 end
 
 local function hint()
@@ -49,7 +49,7 @@ return {
 
     start = function(w)
         win = w
-        last_login = os.clock()
+        last_login = 0
     end,
 
     tick = function()
@@ -77,11 +77,11 @@ return {
         end
 
         -- Auto re-login every 20 minutes to avoid AFK kick
-        local now = os.clock()
-        if now - last_login > 20 * 60 then
+        local now = os.time()
+        if last_login == 0 or now - last_login > 20 * 60 then
             logout()
             win:tap("enter")
-            last_login = os.clock()
+            last_login = os.time()
             F.log("auto re-login")
         end
     end,
@@ -95,7 +95,7 @@ return {
     reset = function()
         state = 0
         count = 0
-        last_login = os.clock()
+        last_login = 0
     end,
 
     stop = function() end,
