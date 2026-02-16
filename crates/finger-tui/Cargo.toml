@@ -1,0 +1,10 @@
+[package]
+name = "finger-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+finger-core = { path = "../finger-core" }
+ratatui = "0.28"
+crossterm = "0.28"
+anyhow = "1"

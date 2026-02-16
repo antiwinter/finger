@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/finger-core",
+    "crates/finger-tui",
+    "crates/finger",
+]
