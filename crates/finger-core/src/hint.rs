@@ -1,5 +1,48 @@
 use crate::types::Capture;
 
+/// Save capture data for debugging (only in debug builds).
+/// Writes decoded nibbles as hex and raw RGB values to logs/.
+#[cfg(debug_assertions)]
+fn save_capture(capture: &Capture) {
+    use std::fmt::Write as _;
+    use std::fs;
+    use std::io::Write as _;
+
+    let stride = capture.bytes_per_row;
+    let mut raw_hex = String::new();
+    let mut rgb_data = String::new();
+
+    for y in 0..capture.height {
+        for x in 0..capture.width {
+            let nibble = get_nibble(capture, x, y);
+            if x > 0 { raw_hex.push(' '); }
+            write!(raw_hex, "{:02x}", nibble).ok();
+
+            let idx = (y * stride + x * 4) as usize;
+            let b = capture.data[idx];
+            let g = capture.data[idx + 1];
+            let r = capture.data[idx + 2];
+            if x > 0 { rgb_data.push_str(" | "); }
+            write!(rgb_data, "{:3},{:3},{:3}", r, g, b).ok();
+        }
+        raw_hex.push('\n');
+        rgb_data.push('\n');
+    }
+
+    let logs_dir = std::path::Path::new("logs");
+    fs::create_dir_all(logs_dir).ok();
+    if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-raw.txt")) {
+        f.write_all(raw_hex.as_bytes()).ok();
+    }
+    if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-rgb.txt")) {
+        f.write_all(rgb_data.as_bytes()).ok();
+    }
+    crate::logger::info(&format!(
+        "[hint-v2] saved capture {}x{} to logs/",
+        capture.width, capture.height
+    ));
+}
+
 /// Extract a 7-bit value from a single pixel in a Capture buffer.
 /// Encoding: G[6:4] << 4 | R[6:5] << 2 | B[6:5]
 /// Capture is always BGRA byte order.
@@ -27,6 +70,9 @@ struct DecodedChar {
 /// the marker sequence [0x00...][0x7F...] data [0x7F...][0x00...]
 /// Returns the decoded ASCII string, or None.
 pub fn decode_hint_v2(capture: &Capture) -> Option<String> {
+    #[cfg(debug_assertions)]
+    save_capture(capture);
+
     // Try multiple Y rows (every 3rd row) to find the hint strip
     for y_start in (0..capture.height.min(60)).step_by(3) {
         if let Some(s) = try_decode_row(capture, y_start) {
@@ -85,7 +131,12 @@ fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
                 }
             }
             State::Decode => {
-                if val == 0x7F {
+                if marker_width < 5 {
+                    // Invalid marker width, restart
+                    state = State::Start;
+                    marker_width = 0;
+                    decoded.clear();
+                } else if val == 0x7F {
                     state = State::End1;
                 } else if let Some(last) = decoded.last_mut() {
                     if last.c == val {

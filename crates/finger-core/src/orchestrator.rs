@@ -50,7 +50,6 @@ pub fn load_bots(bots_dir: &Path) -> Vec<BotEntry> {
         let name = derive_bot_name(&path, bots_dir);
         match LuaBot::load_meta(&path) {
             Ok((pattern, description)) => {
-                logger::info(&format!("loaded bot: {} ({})", name, description));
                 entries.push(BotEntry {
                     name,
                     window_pattern: pattern,
@@ -126,8 +125,9 @@ pub fn orchestrate(
                         let name = entry.name.clone();
                         let enabled = entry.enabled;
 
+                        logger::info(&format!("enable {}: {}", name, enabled));
+
                         if enabled {
-                            logger::info(&format!("enabled bot: {}", name));
                             // Create LuaBot for each instance
                             for inst in &entry.instances {
                                 if lua_bots.contains_key(&inst.id) {
@@ -138,7 +138,6 @@ pub fn orchestrate(
                                     platform.create_window(&entry.window_pattern, inst.window_id),
                                 ) {
                                     Ok(bot) => {
-                                        logger::info(&format!("  started instance: {}", inst.id));
                                         lua_bots.insert(inst.id.clone(), bot);
                                     }
                                     Err(e) => {
@@ -147,7 +146,6 @@ pub fn orchestrate(
                                 }
                             }
                         } else {
-                            logger::info(&format!("disabled bot: {}", name));
                             for inst in &entry.instances {
                                 if let Some(mut bot) = lua_bots.remove(&inst.id) {
                                     bot.stop().ok();
@@ -188,7 +186,7 @@ pub fn orchestrate(
                         // Tick
                         match lua_bot.tick() {
                             Ok(cooldown_ms) => {
-                                let cd = cooldown_ms.unwrap_or(0);
+                                let cd = cooldown_ms.unwrap_or(5000);
                                 inst.next_tick = Instant::now() + Duration::from_millis(cd);
                             }
                             Err(e) => {

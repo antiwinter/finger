@@ -82,7 +82,6 @@ impl Platform for DarwinPlatform {
                     && window_id.is_some()
                 {
                     let wid = window_id.unwrap() as WindowId;
-                    logger::info(&format!("[darwin] found window: \"{}\" (id: {})", title, wid));
                     windows.push((wid, title.to_string()));
                 }
             }
