@@ -7,17 +7,18 @@ local count = 0       -- character position counter
 local last_login = 0  -- anti-AFK timer
 
 local function logout()
-    F.log("[Rally] logout")
+    -- F.log("[Rally] logout")
     F.sleep(0.5)
     win:tap("enter")
     F.sleep(0.2)
     win:type("/logout")
     win:tap("enter")
     F.sleep(6)
-    F.log("[Rally] logout complete")
+    -- F.log("[Rally] logout complete")
 end
 
 local function switch_char(n, key)
+    F.log("switch char " .. n .. " " .. key)
     logout()
     for i = 1, n do
         win:tap(key)
@@ -33,7 +34,7 @@ end
 local function try_final()
     local h = hint()
     if h == "hk" then
-        F.log("[Rally] got hk")
+        F.log("got hk")
         count = count + 1
         state = 0
         switch_char(1, "up")
@@ -52,19 +53,10 @@ return {
     end,
 
     tick = function()
-        -- Auto re-login every 20 minutes to avoid AFK kick
-        local now = os.clock()
-        if now - last_login > 20 * 60 then
-            logout()
-            win:tap("enter")
-            last_login = os.clock()
-            F.log("[Rally] auto re-login")
-        end
-
         if state == 0 then
             local h = hint()
             if h == "rally" then
-                F.log("[Rally] got rally signal")
+                F.log("got rally signal")
                 win:tap("=")
                 F.sleep(1)
                 win:tap("=")
@@ -77,14 +69,21 @@ return {
         elseif state == 1 then
             local h = hint()
             if h == "hkpre" then
-                F.log("[Rally] zandalar yelled")
+                F.log("zandalar yelled")
                 switch_char(count + 1, "up")
                 F.sleep(45)
                 try_final()
             end
         end
 
-        return 5000
+        -- Auto re-login every 20 minutes to avoid AFK kick
+        local now = os.clock()
+        if now - last_login > 20 * 60 then
+            logout()
+            win:tap("enter")
+            last_login = os.clock()
+            F.log("auto re-login")
+        end
     end,
 
     get_status = function()

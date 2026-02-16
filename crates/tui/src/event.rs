@@ -1,7 +1,7 @@
 use std::io;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::App;
@@ -21,28 +21,42 @@ pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
 
         // Poll for events with 100ms timeout (keeps TUI responsive)
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            app.quit();
+                        }
+                        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                            app.move_up();
+                        }
+                        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                            app.move_down();
+                        }
+                        KeyCode::Char(' ') => {
+                            app.toggle_selected();
+                        }
+                        KeyCode::Char('l') | KeyCode::Char('L') => {
+                            app.toggle_log();
+                        }
+                        _ => {}
+                    }
                 }
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Char('Q') => {
-                        app.quit();
+                Event::Mouse(mouse) => {
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            app.scroll_log_up(3);
+                        }
+                        MouseEventKind::ScrollDown => {
+                            app.scroll_log_down(3);
+                        }
+                        _ => {}
                     }
-                    KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
-                        app.move_up();
-                    }
-                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
-                        app.move_down();
-                    }
-                    KeyCode::Char(' ') => {
-                        app.toggle_selected();
-                    }
-                    KeyCode::Char('l') | KeyCode::Char('L') => {
-                        app.toggle_log();
-                    }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     }

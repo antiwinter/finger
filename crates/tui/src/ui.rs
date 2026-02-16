@@ -102,8 +102,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
     } // entries lock dropped here
 
-    // Help bar at bottom
-    lines.push(Line::from(vec![
+    // Help bar
+    let help_line = Line::from(vec![
         Span::styled(" j/k", Style::default().fg(Color::Yellow)),
         Span::raw(" nav  "),
         Span::styled("space", Style::default().fg(Color::Yellow)),
@@ -112,7 +112,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         Span::raw(" log  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" quit"),
-    ]));
+    ]);
+
+    // Split left panel into bot list (fills space) + help bar (1 line at bottom)
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(chunks[0]);
 
     let bot_list = Paragraph::new(lines).block(
         Block::default()
@@ -120,13 +126,18 @@ pub fn draw(f: &mut Frame, app: &App) {
             .title(" Extra Fingers ")
             .border_style(Style::default().fg(Color::Cyan)),
     );
-    f.render_widget(bot_list, chunks[0]);
+    f.render_widget(bot_list, left_chunks[0]);
+    f.render_widget(Paragraph::new(help_line), left_chunks[1]);
 
     // -- Right panel: logs --
     if app.log_visible && chunks.len() > 1 {
         let visible_height = chunks[1].height.saturating_sub(2) as usize;
-        let skip = app.log_messages.len().saturating_sub(visible_height);
-        let log_lines: Vec<Line> = app.log_messages[skip..]
+        let total = app.log_messages.len();
+        let max_scroll = total.saturating_sub(visible_height);
+        let scroll = app.log_scroll.min(max_scroll);
+        let start = total.saturating_sub(visible_height + scroll);
+        let end = total.saturating_sub(scroll);
+        let log_lines: Vec<Line> = app.log_messages[start..end]
             .iter()
             .map(|m| Line::from(m.as_str()))
             .collect();
