@@ -64,6 +64,15 @@ impl App {
     }
 
     pub fn toggle_selected(&mut self) {
+        {
+            let mut entries = self.state.lock().unwrap();
+            if let Some(entry) = entries.get_mut(self.selected) {
+                entry.enabled = !entry.enabled;
+                for inst in &mut entry.instances {
+                    inst.status = if entry.enabled { "running" } else { "stopping" }.into();
+                }
+            }
+        }
         self.cmd_tx.send(Command::Toggle(self.selected)).ok();
     }
 

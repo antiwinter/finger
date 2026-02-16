@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 /// Window identifier (CGWindowID on macOS, HWND on Windows)
 pub type WindowId = u64;
 
@@ -52,7 +50,6 @@ pub struct Instance {
     pub window_title: String,
     pub status: String,
     pub error: Option<String>,
-    pub next_tick: Instant,
 }
 
 impl Instance {
@@ -63,7 +60,6 @@ impl Instance {
             window_title,
             status: String::new(),
             error: None,
-            next_tick: Instant::now(),
         }
     }
 }

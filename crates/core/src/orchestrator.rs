@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -80,127 +81,132 @@ pub fn scan_instances(entries: &mut Vec<BotEntry>, platform: &dyn Platform) {
     }
 }
 
-/// Main orchestration loop. Runs on the main thread.
+/// Drain pending commands. Returns false on Quit.
+fn process_commands(
+    cmd_rx: &mpsc::Receiver<Command>,
+    state: &Mutex<Vec<BotEntry>>,
+    platform: &dyn Platform,
+    bots: &mut HashMap<String, LuaBot>,
+    cooldowns: &mut HashMap<String, Instant>,
+) -> bool {
+    while let Ok(cmd) = cmd_rx.try_recv() {
+        match cmd {
+            Command::Quit => {
+                logger::info("shutting down");
+                return false;
+            }
+            Command::Toggle(idx) => {
+                let mut entries = state.lock().unwrap();
+
+                // Rescan windows, remove dead, add new
+                for entry in entries.iter_mut() {
+                    let wins = platform.get_instances(&entry.window_pattern);
+                    entry.instances.retain(|i| {
+                        let alive = wins.iter().any(|(w, _)| *w == i.window_id);
+                        if !alive {
+                            if let Some(mut b) = bots.remove(&i.id) { b.stop().ok(); }
+                            cooldowns.remove(&i.id);
+                        }
+                        alive
+                    });
+                    for (wid, title) in &wins {
+                        if !entry.instances.iter().any(|i| i.window_id == *wid) {
+                            entry.instances.push(Instance::new(&entry.name, *wid, title.clone()));
+                        }
+                    }
+                }
+
+                let Some(entry) = entries.get_mut(idx) else { continue };
+                // enabled and status already set by TUI
+                logger::info(&format!("enable {}: {}", entry.name, entry.enabled));
+
+                if entry.enabled {
+                    for inst in &entry.instances {
+                        if bots.contains_key(&inst.id) {
+                            bots.get(&inst.id).unwrap().reset().ok();
+                        } else {
+                            match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                                Ok(bot) => { bots.insert(inst.id.clone(), bot); }
+                                Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Main orchestration loop. Runs on a background thread.
 pub fn orchestrate(
     state: Arc<Mutex<Vec<BotEntry>>>,
     platform: Box<dyn Platform>,
     _bots_dir: PathBuf,
     cmd_rx: mpsc::Receiver<Command>,
 ) {
-    // LuaBot instances keyed by instance id
-    let mut lua_bots: std::collections::HashMap<String, LuaBot> = std::collections::HashMap::new();
+    let mut bots: HashMap<String, LuaBot> = HashMap::new();
+    let mut cooldowns: HashMap<String, Instant> = HashMap::new();
 
     loop {
-        // Check for commands (non-blocking)
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            match cmd {
-                Command::Toggle(idx) => {
-                    let mut entries = state.lock().unwrap();
-
-                    // Rescan windows for all entries (discover new, remove dead)
-                    for entry in entries.iter_mut() {
-                        let windows = platform.get_instances(&entry.window_pattern);
-
-                        // Remove instances whose windows no longer exist
-                        entry.instances.retain(|inst| {
-                            let exists = windows.iter().any(|(wid, _)| *wid == inst.window_id);
-                            if !exists {
-                                if let Some(mut bot) = lua_bots.remove(&inst.id) {
-                                    bot.stop().ok();
-                                }
-                            }
-                            exists
-                        });
-
-                        // Add new instances for newly discovered windows
-                        for (wid, title) in &windows {
-                            if !entry.instances.iter().any(|i| i.window_id == *wid) {
-                                entry.instances.push(Instance::new(&entry.name, *wid, title.clone()));
-                            }
-                        }
-                    }
-
-                    if let Some(entry) = entries.get_mut(idx) {
-                        entry.enabled = !entry.enabled;
-                        let name = entry.name.clone();
-                        let enabled = entry.enabled;
-
-                        logger::info(&format!("enable {}: {}", name, enabled));
-
-                        if enabled {
-                            // Create LuaBot for each instance
-                            for inst in &entry.instances {
-                                if lua_bots.contains_key(&inst.id) {
-                                    continue;
-                                }
-                                match LuaBot::new(
-                                    &entry.script_path,
-                                    platform.create_window(&entry.window_pattern, inst.window_id),
-                                ) {
-                                    Ok(bot) => {
-                                        lua_bots.insert(inst.id.clone(), bot);
-                                    }
-                                    Err(e) => {
-                                        logger::error(&format!("  failed to start {}: {}", inst.id, e));
-                                    }
-                                }
-                            }
-                        } else {
-                            for inst in &entry.instances {
-                                if let Some(mut bot) = lua_bots.remove(&inst.id) {
-                                    bot.stop().ok();
-                                }
-                            }
-                        }
-                    }
-                }
-                Command::Quit => {
-                    logger::info("shutting down");
-                    return;
-                }
-            }
+        if !process_commands(&cmd_rx, &state, platform.as_ref(), &mut bots, &mut cooldowns) {
+            return;
         }
 
-        // Tick enabled bots
-        {
+        // Collect ready instances, clean up disabled ones (brief lock)
+        let ready: Vec<String> = {
             let mut entries = state.lock().unwrap();
             for entry in entries.iter_mut() {
-                if !entry.enabled {
-                    continue;
+                if entry.enabled { continue; }
+                for inst in &mut entry.instances {
+                    if inst.status != "stopped" {
+                        inst.status = "stopped".into();
+                    }
                 }
-                for inst in entry.instances.iter_mut() {
-                    if Instant::now() < inst.next_tick {
-                        // Still update status while waiting for cooldown
-                        if let Some(lua_bot) = lua_bots.get(&inst.id) {
-                            inst.status = lua_bot.get_status().unwrap_or_else(|_| "waiting".to_string());
-                        }
-                        continue;
-                    }
-                    if let Some(lua_bot) = lua_bots.get(&inst.id) {
-                        // Activate window
-                        lua_bot.activate();
+            }
+            entries.iter()
+                .filter(|e| e.enabled)
+                .flat_map(|e| e.instances.iter())
+                .filter(|i| {
+                    bots.contains_key(&i.id)
+                        && cooldowns.get(&i.id).map_or(true, |t| Instant::now() >= *t)
+                })
+                .map(|i| i.id.clone())
+                .collect()
+        };
 
-                        // Small delay after activation
-                        std::thread::sleep(Duration::from_millis(200));
+        for id in &ready {
+            // Stay responsive: check commands between each tick
+            if !process_commands(&cmd_rx, &state, platform.as_ref(), &mut bots, &mut cooldowns) {
+                return;
+            }
 
-                        // Tick
-                        match lua_bot.tick() {
-                            Ok(cooldown_ms) => {
-                                let cd = cooldown_ms.unwrap_or(5000);
-                                inst.next_tick = Instant::now() + Duration::from_millis(cd);
-                            }
-                            Err(e) => {
-                                inst.error = Some(format!("{}", e));
-                                logger::error(&format!("tick error {}: {}", inst.id, e));
-                            }
-                        }
+            let Some(bot) = bots.get(id) else { continue };
+            bot.activate();
+            std::thread::sleep(Duration::from_millis(200));
 
-                        // Update status
-                        match lua_bot.get_status() {
-                            Ok(s) => inst.status = s,
-                            Err(_) => {}
-                        }
-                    }
+            let (cd, status, err) = match bot.tick() {
+                Ok(ms) => (ms.unwrap_or(5000), bot.get_status().ok(), None),
+                Err(e) => {
+                    logger::error(&format!("tick error {}: {}", id, e));
+                    (5000, None, Some(e.to_string()))
+                }
+            };
+
+            cooldowns.insert(id.clone(), Instant::now() + Duration::from_millis(cd));
+
+            // Write back status (brief lock)
+            let mut entries = state.lock().unwrap();
+            let disabled = entries.iter().any(|e| !e.enabled && e.instances.iter().any(|i| i.id == *id));
+            if let Some(inst) = entries.iter_mut()
+                .flat_map(|e| e.instances.iter_mut())
+                .find(|i| i.id == *id)
+            {
+                if disabled {
+                    inst.status = "stopped".into();
+                } else {
+                    inst.status = status.unwrap_or_default();
+                    inst.error = err;
                 }
             }
         }
