@@ -1,7 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/finger-core",
-    "crates/finger-tui",
-    "crates/finger",
+    "crates/core",
+    "crates/tui",
+    ".",
 ]
+
+[package]
+name = "finger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+finger-core = { path = "crates/core" }
+finger-tui = { path = "crates/tui" }
+anyhow = "1"
+crossterm = "0.28"
+ratatui = "0.28"
