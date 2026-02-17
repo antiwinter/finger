@@ -22,22 +22,34 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
 
     // -- Left panel: bot list --
+
+    // Orchestrator state banner (rendered separately as full-width bar)
+    let (banner_label, banner_bg) = {
+        let orch = app.orch_state.lock().unwrap();
+        match *orch {
+            OrchestratorState::Running => ("RUNNING (Press S to stop)", Color::Green),
+            OrchestratorState::Stopping => ("STOPPING...", Color::Yellow),
+            OrchestratorState::Stopped => ("STOPPED (Press S to start)", Color::Red),
+        }
+    };
+
     let mut lines: Vec<Line> = Vec::new();
 
-    // Orchestrator state banner
-    {
-        let orch = app.orch_state.lock().unwrap();
-        let (label, color) = match *orch {
-            OrchestratorState::Running => ("RUNNING", Color::Green),
-            OrchestratorState::Stopping => ("STOPPING...", Color::Yellow),
-            OrchestratorState::Stopped => ("STOPPED", Color::Red),
-        };
-        lines.push(Line::from(vec![
-            Span::raw(" Orchestrator: "),
-            Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
-        ]));
-        lines.push(Line::from(""));
-    }
+    // Blank row after banner
+    lines.push(Line::from(""));
+
+    // Help line as first content line inside the bordered panel
+    lines.push(Line::from(vec![
+        Span::styled(" j", Style::default().fg(Color::Yellow)),
+        Span::raw("/"),
+        Span::styled("k", Style::default().fg(Color::Yellow)),
+        Span::raw("/"),
+        Span::styled("space", Style::default().fg(Color::Yellow)),
+        Span::raw(" to select, "),
+        Span::styled("r", Style::default().fg(Color::Yellow)),
+        Span::raw(" to reset:"),
+    ]));
+    lines.push(Line::from(""));
 
     {
         let entries = app.state.lock().unwrap();
@@ -46,108 +58,85 @@ pub fn draw(f: &mut Frame, app: &App) {
             let is_selected = i == app.selected;
             let prefix = if is_selected { "> " } else { "  " };
 
-            let (indicator, color) = if entry.enabled {
-                if entry.instances.iter().any(|ins| ins.error.is_some()) {
-                    ("●", Color::Red)
-                } else {
-                    ("●", Color::Green)
-                }
-            } else {
-                ("○", Color::DarkGray)
-            };
+            let checkbox = if entry.enabled { "[●]" } else { "[ ]" };
+            let check_color = banner_bg;
 
-            // Bot header line
+            // Bot header line: checkbox + name + description
             let name = entry.name.clone();
             let mut spans = vec![
                 Span::raw(prefix),
-                Span::styled(indicator, Style::default().fg(color)),
+                Span::styled(checkbox, Style::default().fg(check_color)),
                 Span::raw(" "),
             ];
-            if is_selected {
-                spans.push(Span::styled(
-                    name,
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-                ));
-            } else {
-                spans.push(Span::styled(name, Style::default().fg(color)));
-            }
             spans.push(Span::styled(
-                format!("  {} ins", entry.instances.len()),
-                Style::default().fg(Color::DarkGray),
+                name,
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ));
+            if !entry.description.is_empty() {
+                spans.push(Span::styled(
+                    format!("  {}", entry.description),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
             lines.push(Line::from(spans));
 
-            // Description
-            lines.push(Line::from(Span::styled(
-                format!("    {}", entry.description),
-                Style::default().fg(Color::DarkGray),
-            )));
+            // Instance lines (only for enabled bots)
+            if entry.enabled {
+                for inst in &entry.instances {
+                    let status_color = if inst.error.is_some() {
+                        Color::Red
+                    } else {
+                        Color::Cyan
+                    };
 
-            // Instance lines
-            for inst in &entry.instances {
-                let status_color = if inst.error.is_some() {
-                    Color::Red
-                } else if entry.enabled {
-                    Color::Cyan
-                } else {
-                    Color::DarkGray
-                };
+                    let status_text = if let Some(ref e) = inst.error {
+                        format!(" err: {}", e)
+                    } else if !inst.status.is_empty() {
+                        format!(" {}", inst.status)
+                    } else {
+                        String::new()
+                    };
 
-                let status_text = if let Some(ref e) = inst.error {
-                    format!(" err: {}", e)
-                } else if !inst.status.is_empty() {
-                    format!(" {}", inst.status)
-                } else {
-                    String::new()
-                };
-
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("    {} ", inst.window_title),
-                        Style::default().fg(Color::Yellow),
-                    ),
-                    Span::styled(
-                        format!("#{}", inst.window_id),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(status_text, Style::default().fg(status_color)),
-                ]));
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("    {} ", inst.window_title),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(
+                            format!("#{}", inst.window_id),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::styled(status_text, Style::default().fg(status_color)),
+                    ]));
+                }
             }
-
-            lines.push(Line::from(""));
         }
     } // entries lock dropped here
 
-    // Help bar
-    let help_line = Line::from(vec![
-        Span::styled(" j/k", Style::default().fg(Color::Yellow)),
-        Span::raw(" nav  "),
-        Span::styled("space", Style::default().fg(Color::Yellow)),
-        Span::raw(" toggle  "),
-        Span::styled("s", Style::default().fg(Color::Yellow)),
-        Span::raw(" start/stop  "),
-        Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" restart  "),
-        Span::styled("L", Style::default().fg(Color::Yellow)),
-        Span::raw(" log  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(" quit"),
-    ]);
-
-    // Split left panel into bot list (fills space) + help bar (1 line at bottom)
+    // Split left panel into banner (1 line) + bot list (fills space)
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(chunks[0]);
+
+    // Full-width centered banner
+    let banner_width = left_chunks[0].width as usize;
+    let pad_total = banner_width.saturating_sub(banner_label.len());
+    let pad_left = pad_total / 2;
+    let pad_right = pad_total - pad_left;
+    let centered_banner = format!("{}{}{}", " ".repeat(pad_left), banner_label, " ".repeat(pad_right));
+    let banner = Paragraph::new(Line::from(Span::styled(
+        centered_banner,
+        Style::default().fg(Color::Black).bg(banner_bg).add_modifier(Modifier::BOLD),
+    )));
+    f.render_widget(banner, left_chunks[0]);
 
     let bot_list = Paragraph::new(lines).block(
         Block::default()
-            .borders(Borders::ALL)
-            .title(" Extra Fingers ")
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
             .border_style(Style::default().fg(Color::Cyan)),
     );
-    f.render_widget(bot_list, left_chunks[0]);
-    f.render_widget(Paragraph::new(help_line), left_chunks[1]);
+    f.render_widget(bot_list, left_chunks[1]);
 
     // -- Right panel: logs --
     if app.log_visible && chunks.len() > 1 {
