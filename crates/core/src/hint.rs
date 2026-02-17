@@ -37,8 +37,8 @@ fn save_capture(capture: &Capture) {
     if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-rgb.txt")) {
         f.write_all(rgb_data.as_bytes()).ok();
     }
-    crate::logger::info(&format!(
-        "[hint-v2] saved capture {}x{} to logs/",
+    crate::logger::info_p("hint", &format!(
+        "saved capture {}x{} to logs/",
         capture.width, capture.height
     ));
 }

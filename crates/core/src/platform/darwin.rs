@@ -44,7 +44,7 @@ impl Platform for DarwinPlatform {
         let re = match regex::Regex::new(&format!("(?i){}", pattern)) {
             Ok(r) => r,
             Err(e) => {
-                logger::error(&format!("invalid pattern '{}': {}", pattern, e));
+                logger::error_p("darwin", &format!("invalid pattern '{}': {}", pattern, e));
                 return windows;
             }
         };
@@ -53,7 +53,7 @@ impl Platform for DarwinPlatform {
             let option = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
             let window_list_ref = CGWindowListCopyWindowInfo(option, kCGNullWindowID);
             if window_list_ref.is_null() {
-                logger::warn("failed to get window list");
+                logger::warn_p("darwin", "failed to get window list");
                 return windows;
             }
 
@@ -286,7 +286,7 @@ impl WindowHandle for DarwinWindow {
             let escaped = main_key_lower.replace('"', "\\\"");
             format!("keystroke \"{}\"", escaped)
         } else {
-            logger::warn(&format!("[darwin] unknown key: {}", main_key));
+            logger::warn_p("darwin", &format!("unknown key: {}", main_key));
             return;
         };
 

@@ -148,7 +148,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         let end = total.saturating_sub(scroll);
         let log_lines: Vec<Line> = app.log_messages[start..end]
             .iter()
-            .map(|m| Line::from(m.as_str()))
+            .map(|m| parse_log_line(m))
             .collect();
 
         let log_panel = Paragraph::new(log_lines)
@@ -161,4 +161,59 @@ pub fn draw(f: &mut Frame, app: &App) {
             .wrap(Wrap { trim: false });
         f.render_widget(log_panel, chunks[1]);
     }
+}
+
+/// Parse a structured log line (level\x1fprefix\x1fcolor\x1ftimestamp\x1fmessage)
+/// into a colored Line for TUI rendering.
+fn parse_log_line(raw: &str) -> Line<'_> {
+    let parts: Vec<&str> = raw.splitn(5, '\x1f').collect();
+    if parts.len() < 5 {
+        // Fallback for unstructured messages
+        return Line::from(raw);
+    }
+
+    let level = parts[0];
+    let prefix = parts[1];
+    let color_idx: u8 = parts[2].parse().unwrap_or(0);
+    let timestamp = parts[3];
+    let message = parts[4];
+
+    let prefix_color = match color_idx {
+        1 => Color::DarkGray,  // COLOR_GRAY
+        2 => Color::LightBlue, // COLOR_BLUE
+        _ => Color::White,
+    };
+
+    let msg_color = prefix_color;
+
+    let mut spans = Vec::new();
+
+    // Dim timestamp (no brackets)
+    spans.push(Span::styled(
+        timestamp,
+        Style::default().fg(Color::DarkGray),
+    ));
+    spans.push(Span::raw(" "));
+
+    // Level tag: only show for warn/error, colored (overrides line color)
+    match level {
+        "ERROR" => {
+            spans.push(Span::styled("error ", Style::default().fg(Color::Red)));
+        }
+        "WARN" => {
+            spans.push(Span::styled("warn ", Style::default().fg(Color::Yellow)));
+        }
+        _ => {} // INFO: no tag
+    }
+
+    // Prefix (bold to distinguish from message)
+    if !prefix.is_empty() {
+        spans.push(Span::styled(prefix, Style::default().fg(prefix_color).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(" ", Style::default().fg(msg_color)));
+    }
+
+    // Message in same color as prefix (default line color)
+    spans.push(Span::styled(message, Style::default().fg(msg_color)));
+
+    Line::from(spans)
 }

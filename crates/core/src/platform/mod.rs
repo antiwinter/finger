@@ -4,6 +4,7 @@ pub mod stub;
 pub mod darwin;
 
 use crate::types::*;
+use crate::logger;
 
 /// Handle to a specific OS window, providing automation ops.
 pub trait WindowHandle: Send {
@@ -26,15 +27,19 @@ pub trait Platform: Send {
 
 /// Create the platform appropriate for the current OS.
 pub fn create_platform(force_stub: bool) -> Box<dyn Platform> {
+    logger::register_prefix("hint", logger::COLOR_GRAY);
     if force_stub {
+        logger::register_prefix("stub", logger::COLOR_GRAY);
         return Box::new(stub::StubPlatform);
     }
     #[cfg(target_os = "macos")]
     {
+        logger::register_prefix("darwin", logger::COLOR_GRAY);
         return Box::new(darwin::DarwinPlatform::new());
     }
     #[cfg(not(target_os = "macos"))]
     {
+        logger::register_prefix("stub", logger::COLOR_GRAY);
         return Box::new(stub::StubPlatform);
     }
 }

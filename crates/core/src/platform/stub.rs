@@ -6,7 +6,7 @@ pub struct StubPlatform;
 
 impl Platform for StubPlatform {
     fn get_instances(&self, pattern: &str) -> Vec<(WindowId, String)> {
-        logger::info(&format!("[stub] get_instances(\"{}\")", pattern));
+        logger::info_p("stub", &format!("get_instances(\"{}\")", pattern));
         let pat = pattern.to_lowercase();
         if pat.contains("warcraft") || pat.contains("wow") {
             vec![
@@ -21,7 +21,7 @@ impl Platform for StubPlatform {
     }
 
     fn create_window(&self, pattern: &str, window_id: WindowId) -> Box<dyn WindowHandle> {
-        logger::info(&format!("[stub] create_window(\"{}\", {})", pattern, window_id));
+        logger::info_p("stub", &format!("create_window(\"{}\", {})", pattern, window_id));
         Box::new(StubWindow {
             window_id,
             title: format!("Stub-{}", window_id),
@@ -45,27 +45,27 @@ impl WindowHandle for StubWindow {
     fn region(&self) -> Option<Region> { Some(self.region) }
 
     fn update(&mut self) {
-        logger::info(&format!("[stub] win({}).update()", self.window_id));
+        logger::info_p("stub", &format!("win({}).update()", self.window_id));
     }
 
     fn activate(&mut self) {
-        logger::info(&format!("[stub] win({}).activate()", self.window_id));
+        logger::info_p("stub", &format!("win({}).activate()", self.window_id));
     }
 
     fn click_relative(&mut self, x_ratio: f64, y_ratio: f64) {
-        logger::info(&format!("[stub] win({}).click_relative({:.2}, {:.2})", self.window_id, x_ratio, y_ratio));
+        logger::info_p("stub", &format!("win({}).click_relative({:.2}, {:.2})", self.window_id, x_ratio, y_ratio));
     }
 
     fn tap(&mut self, key: &str) {
-        logger::info(&format!("[stub] win({}).tap(\"{}\")", self.window_id, key));
+        logger::info_p("stub", &format!("win({}).tap(\"{}\")", self.window_id, key));
     }
 
     fn type_text(&mut self, text: &str) {
-        logger::info(&format!("[stub] win({}).type_text(\"{}\")", self.window_id, text));
+        logger::info_p("stub", &format!("win({}).type_text(\"{}\")", self.window_id, text));
     }
 
     fn capture(&mut self, rect: Option<CaptureRect>) -> Option<Capture> {
-        logger::info(&format!("[stub] win({}).capture({:?})", self.window_id, rect));
+        logger::info_p("stub", &format!("win({}).capture({:?})", self.window_id, rect));
         None
     }
 }

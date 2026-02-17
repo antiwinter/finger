@@ -180,13 +180,16 @@ fn register_globals(lua: &Lua, tag: &str) -> mlua::Result<()> {
     })?;
     f_table.set("sleep", sleep_fn)?;
 
-    // F.log(msg) — auto-prepends [tag] from script folder name
+    // F.log(msg) — auto-prefixed with tag from script folder name (blue)
     let tag = tag.to_string();
+    if !tag.is_empty() {
+        logger::register_prefix(&tag, logger::COLOR_BLUE);
+    }
     let log_fn = lua.create_function(move |_, msg: String| {
         if tag.is_empty() {
             logger::info(&msg);
         } else {
-            logger::info(&format!("[{}] {}", tag, msg));
+            logger::info_p(&tag, &msg);
         }
         Ok(())
     })?;
