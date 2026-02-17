@@ -44,6 +44,30 @@ pub fn run(
                     if key.kind != KeyEventKind::Press {
                         continue;
                     }
+
+                    // If confirm dialog is open, route input there
+                    if app.confirm.is_some() {
+                        match key.code {
+                            KeyCode::Left | KeyCode::Right
+                            | KeyCode::Char('h') | KeyCode::Char('l')
+                            | KeyCode::Tab => {
+                                app.confirm.as_mut().unwrap().toggle();
+                            }
+                            KeyCode::Enter => {
+                                if app.confirm.as_ref().unwrap().selected {
+                                    app.confirm_restart();
+                                } else {
+                                    app.cancel_confirm();
+                                }
+                            }
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                app.cancel_confirm();
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app.quit();

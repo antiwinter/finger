@@ -161,6 +161,11 @@ pub fn draw(f: &mut Frame, app: &App) {
             .wrap(Wrap { trim: false });
         f.render_widget(log_panel, chunks[1]);
     }
+
+    // -- Confirm dialog overlay --
+    if let Some(ref dialog) = app.confirm {
+        dialog.render(f);
+    }
 }
 
 /// Parse a structured log line (level\x1fprefix\x1fcolor\x1ftimestamp\x1fmessage)

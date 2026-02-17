@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use finger_core::types::{BotEntry, Command, OrchestratorState};
 use finger_core::settings::Settings;
 
+use crate::confirm::ConfirmDialog;
+
 pub struct App {
     pub state: Arc<Mutex<Vec<BotEntry>>>,
     pub orch_state: Arc<Mutex<OrchestratorState>>,
@@ -13,6 +15,7 @@ pub struct App {
     pub log_rx: mpsc::Receiver<String>,
     pub cmd_tx: mpsc::Sender<Command>,
     pub settings_path: PathBuf,
+    pub confirm: Option<ConfirmDialog>,
     pub should_quit: bool,
 }
 
@@ -34,6 +37,7 @@ impl App {
             log_rx,
             cmd_tx,
             settings_path,
+            confirm: None,
             should_quit: false,
         }
     }
@@ -99,7 +103,22 @@ impl App {
     }
 
     pub fn restart_selected(&mut self) {
+        let name = {
+            let entries = self.state.lock().unwrap();
+            entries.get(self.selected).map(|e| e.name.clone())
+        };
+        if let Some(name) = name {
+            self.confirm = Some(ConfirmDialog::new(format!("Restart bot \"{}\"?", name)));
+        }
+    }
+
+    pub fn confirm_restart(&mut self) {
+        self.confirm = None;
         self.cmd_tx.send(Command::Restart(self.selected)).ok();
+    }
+
+    pub fn cancel_confirm(&mut self) {
+        self.confirm = None;
     }
 
     pub fn toggle_log(&mut self) {
