@@ -1,16 +1,34 @@
 use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
+use finger_core::platform::hotkey;
+use finger_core::types::OrchestratorState;
+
 use crate::App;
 use crate::ui;
 
-pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> anyhow::Result<()> {
+pub fn run(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    hotkey_flag: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
     loop {
         if app.should_quit {
             return Ok(());
+        }
+
+        // Check global hotkey (Alt+Shift+K)
+        if hotkey_flag.swap(false, Ordering::Acquire) {
+            let is_running = *app.orch_state.lock().unwrap() == OrchestratorState::Running;
+            if is_running {
+                app.start_stop(); // enter Stopping state
+            }
+            hotkey::activate_terminal();
         }
 
         // Drain log messages

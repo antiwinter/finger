@@ -1,6 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
+use std::sync::atomic::AtomicBool;
 use std::thread;
 
 use anyhow::Result;
@@ -12,7 +13,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use finger_core::{logger, orchestrator, settings::Settings};
-use finger_core::platform::create_platform;
+use finger_core::platform::{create_platform, hotkey};
 use finger_core::types::{Command, OrchestratorState};
 
 fn main() -> Result<()> {
@@ -88,8 +89,12 @@ fn main() -> Result<()> {
         orchestrator::orchestrate(orch_bot_state, orch_run_state, orch_platform, orch_bots_dir, cmd_rx);
     });
 
+    // Start global hotkey listener (Alt+Shift+K)
+    let hotkey_flag = Arc::new(AtomicBool::new(false));
+    hotkey::start_hotkey_listener(Arc::clone(&hotkey_flag));
+
     // Run TUI event loop on main thread
-    let result = finger_tui::event::run(&mut terminal, &mut app);
+    let result = finger_tui::event::run(&mut terminal, &mut app, hotkey_flag);
 
     // Restore terminal
     disable_raw_mode()?;
