@@ -1,5 +1,7 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 use finger_core::types::{BotEntry, Command, OrchestratorState};
+use finger_core::settings::Settings;
 
 pub struct App {
     pub state: Arc<Mutex<Vec<BotEntry>>>,
@@ -10,6 +12,7 @@ pub struct App {
     pub log_scroll: usize, // scroll offset from bottom (0 = latest)
     pub log_rx: mpsc::Receiver<String>,
     pub cmd_tx: mpsc::Sender<Command>,
+    pub settings_path: PathBuf,
     pub should_quit: bool,
 }
 
@@ -19,6 +22,7 @@ impl App {
         orch_state: Arc<Mutex<OrchestratorState>>,
         log_rx: mpsc::Receiver<String>,
         cmd_tx: mpsc::Sender<Command>,
+        settings_path: PathBuf,
     ) -> Self {
         Self {
             state,
@@ -29,6 +33,7 @@ impl App {
             log_scroll: 0,
             log_rx,
             cmd_tx,
+            settings_path,
             should_quit: false,
         }
     }
@@ -72,6 +77,11 @@ impl App {
             if let Some(entry) = entries.get_mut(self.selected) {
                 entry.enabled = !entry.enabled;
             }
+            let enabled_bots: Vec<String> = entries.iter()
+                .filter(|e| e.enabled)
+                .map(|e| e.name.clone())
+                .collect();
+            Settings { enabled_bots }.save(&self.settings_path);
         }
         self.cmd_tx.send(Command::Toggle(self.selected)).ok();
     }

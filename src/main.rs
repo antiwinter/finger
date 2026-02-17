@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use finger_core::{logger, orchestrator};
+use finger_core::{logger, orchestrator, settings::Settings};
 use finger_core::platform::create_platform;
 use finger_core::types::{Command, OrchestratorState};
 
@@ -40,6 +40,15 @@ fn main() -> Result<()> {
     let mut entries = orchestrator::load_bots(&bots_dir);
     orchestrator::scan_instances(&mut entries, platform.as_ref());
 
+    // Restore enabled state from settings
+    let settings_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("settings.json");
+    let settings = Settings::load(&settings_path);
+    for entry in &mut entries {
+        if settings.enabled_bots.contains(&entry.name) {
+            entry.enabled = true;
+        }
+    }
+
     logger::info(&format!("loaded {} bot(s), scanning windows", entries.len()));
 
     // Shared state
@@ -67,6 +76,7 @@ fn main() -> Result<()> {
         Arc::clone(&orch_state),
         log_rx,
         cmd_tx,
+        settings_path,
     );
 
     // Spawn orchestrator on a background thread
