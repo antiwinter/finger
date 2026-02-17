@@ -108,16 +108,9 @@ impl LuaBot {
     }
 
     /// Create a new LuaBot, load the script, and call start(win).
-    pub fn new(script_path: &Path, win_handle: Box<dyn WindowHandle>) -> Result<Self> {
+    pub fn new(script_path: &Path, instance_id: &str, win_handle: Box<dyn WindowHandle>) -> Result<Self> {
         let lua = Lua::new();
-
-        // Derive log tag from bot folder name (e.g. bots/wow-rally-hk/main.lua -> "wow-rally-hk")
-        let tag = script_path
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        register_globals(&lua, &tag).map_err(lua_err)?;
+        register_globals(&lua, instance_id).map_err(lua_err)?;
 
         // Set package.path so require() finds modules in the bot's directory
         if let Some(bot_dir) = script_path.parent() {

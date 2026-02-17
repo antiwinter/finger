@@ -133,7 +133,7 @@ fn process_commands(
                         if bots.contains_key(&inst.id) {
                             bots.get(&inst.id).unwrap().reset().ok();
                         } else {
-                            match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                            match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
                                 Ok(bot) => { bots.insert(inst.id.clone(), bot); }
                                 Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
                             }
@@ -163,7 +163,7 @@ fn process_commands(
                             if !entry.enabled { continue; }
                             for inst in &entry.instances {
                                 if !bots.contains_key(&inst.id) {
-                                    match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                                    match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
                                         Ok(bot) => { bots.insert(inst.id.clone(), bot); }
                                         Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
                                     }
@@ -188,7 +188,7 @@ fn process_commands(
                         b.stop().ok();
                     }
                     cooldowns.remove(&inst.id);
-                    match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                    match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
                         Ok(bot) => { bots.insert(inst.id.clone(), bot); }
                         Err(e) => logger::error(&format!("failed to restart {}: {}", inst.id, e)),
                     }
