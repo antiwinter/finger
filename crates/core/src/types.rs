@@ -64,8 +64,18 @@ impl Instance {
     }
 }
 
+/// Orchestrator run state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrchestratorState {
+    Stopped,
+    Running,
+    Stopping,
+}
+
 /// Command from TUI to orchestrator
 pub enum Command {
     Toggle(usize),
+    StartStop,
+    Restart(usize),
     Quit,
 }

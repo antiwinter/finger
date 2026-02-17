@@ -39,6 +39,12 @@ pub fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         KeyCode::Char(' ') => {
                             app.toggle_selected();
                         }
+                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                            app.start_stop();
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            app.restart_selected();
+                        }
                         KeyCode::Char('l') | KeyCode::Char('L') => {
                             app.toggle_log();
                         }

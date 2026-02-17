@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use finger_core::types::OrchestratorState;
 use crate::App;
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -22,6 +23,21 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // -- Left panel: bot list --
     let mut lines: Vec<Line> = Vec::new();
+
+    // Orchestrator state banner
+    {
+        let orch = app.orch_state.lock().unwrap();
+        let (label, color) = match *orch {
+            OrchestratorState::Running => ("RUNNING", Color::Green),
+            OrchestratorState::Stopping => ("STOPPING...", Color::Yellow),
+            OrchestratorState::Stopped => ("STOPPED", Color::Red),
+        };
+        lines.push(Line::from(vec![
+            Span::raw(" Orchestrator: "),
+            Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(""));
+    }
 
     {
         let entries = app.state.lock().unwrap();
@@ -108,6 +124,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         Span::raw(" nav  "),
         Span::styled("space", Style::default().fg(Color::Yellow)),
         Span::raw(" toggle  "),
+        Span::styled("s", Style::default().fg(Color::Yellow)),
+        Span::raw(" start/stop  "),
+        Span::styled("r", Style::default().fg(Color::Yellow)),
+        Span::raw(" restart  "),
         Span::styled("L", Style::default().fg(Color::Yellow)),
         Span::raw(" log  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),

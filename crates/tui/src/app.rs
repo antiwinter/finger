@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex, mpsc};
-use finger_core::types::{BotEntry, Command};
+use finger_core::types::{BotEntry, Command, OrchestratorState};
 
 pub struct App {
     pub state: Arc<Mutex<Vec<BotEntry>>>,
+    pub orch_state: Arc<Mutex<OrchestratorState>>,
     pub selected: usize,
     pub log_visible: bool,
     pub log_messages: Vec<String>,
@@ -15,11 +16,13 @@ pub struct App {
 impl App {
     pub fn new(
         state: Arc<Mutex<Vec<BotEntry>>>,
+        orch_state: Arc<Mutex<OrchestratorState>>,
         log_rx: mpsc::Receiver<String>,
         cmd_tx: mpsc::Sender<Command>,
     ) -> Self {
         Self {
             state,
+            orch_state,
             selected: 0,
             log_visible: true,
             log_messages: Vec::new(),
@@ -68,12 +71,25 @@ impl App {
             let mut entries = self.state.lock().unwrap();
             if let Some(entry) = entries.get_mut(self.selected) {
                 entry.enabled = !entry.enabled;
-                for inst in &mut entry.instances {
-                    inst.status = if entry.enabled { "running" } else { "stopping" }.into();
-                }
             }
         }
         self.cmd_tx.send(Command::Toggle(self.selected)).ok();
+    }
+
+    pub fn start_stop(&mut self) {
+        {
+            let mut os = self.orch_state.lock().unwrap();
+            match *os {
+                OrchestratorState::Running => *os = OrchestratorState::Stopping,
+                OrchestratorState::Stopped => *os = OrchestratorState::Running,
+                OrchestratorState::Stopping => return,
+            }
+        }
+        self.cmd_tx.send(Command::StartStop).ok();
+    }
+
+    pub fn restart_selected(&mut self) {
+        self.cmd_tx.send(Command::Restart(self.selected)).ok();
     }
 
     pub fn toggle_log(&mut self) {

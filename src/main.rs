@@ -13,7 +13,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use finger_core::{logger, orchestrator};
 use finger_core::platform::create_platform;
-use finger_core::types::Command;
+use finger_core::types::{Command, OrchestratorState};
 
 fn main() -> Result<()> {
     let force_stub = std::env::args().any(|a| a == "--stub");
@@ -44,6 +44,7 @@ fn main() -> Result<()> {
 
     // Shared state
     let state = Arc::new(Mutex::new(entries));
+    let orch_state = Arc::new(Mutex::new(OrchestratorState::Stopped));
 
     // Channels
     let (log_tx, log_rx) = mpsc::channel::<String>();
@@ -63,16 +64,18 @@ fn main() -> Result<()> {
     // Create TUI app
     let mut app = finger_tui::App::new(
         Arc::clone(&state),
+        Arc::clone(&orch_state),
         log_rx,
         cmd_tx,
     );
 
     // Spawn orchestrator on a background thread
-    let orch_state = Arc::clone(&state);
+    let orch_bot_state = Arc::clone(&state);
+    let orch_run_state = Arc::clone(&orch_state);
     let orch_platform = create_platform(force_stub);
     let orch_bots_dir = bots_dir.clone();
     thread::spawn(move || {
-        orchestrator::orchestrate(orch_state, orch_platform, orch_bots_dir, cmd_rx);
+        orchestrator::orchestrate(orch_bot_state, orch_run_state, orch_platform, orch_bots_dir, cmd_rx);
     });
 
     // Run TUI event loop on main thread

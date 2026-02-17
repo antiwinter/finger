@@ -85,6 +85,7 @@ pub fn scan_instances(entries: &mut Vec<BotEntry>, platform: &dyn Platform) {
 fn process_commands(
     cmd_rx: &mpsc::Receiver<Command>,
     state: &Mutex<Vec<BotEntry>>,
+    orch_state: &Mutex<OrchestratorState>,
     platform: &dyn Platform,
     bots: &mut HashMap<String, LuaBot>,
     cooldowns: &mut HashMap<String, Instant>,
@@ -93,6 +94,12 @@ fn process_commands(
         match cmd {
             Command::Quit => {
                 logger::info("shutting down");
+                // Stop all bots
+                for (_, mut bot) in bots.drain() {
+                    bot.stop().ok();
+                }
+                cooldowns.clear();
+                *orch_state.lock().unwrap() = OrchestratorState::Stopped;
                 return false;
             }
             Command::Toggle(idx) => {
@@ -117,10 +124,11 @@ fn process_commands(
                 }
 
                 let Some(entry) = entries.get_mut(idx) else { continue };
-                // enabled and status already set by TUI
                 logger::info(&format!("enable {}: {}", entry.name, entry.enabled));
 
-                if entry.enabled {
+                let is_running = *orch_state.lock().unwrap() == OrchestratorState::Running;
+
+                if entry.enabled && is_running {
                     for inst in &entry.instances {
                         if bots.contains_key(&inst.id) {
                             bots.get(&inst.id).unwrap().reset().ok();
@@ -130,6 +138,59 @@ fn process_commands(
                                 Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
                             }
                         }
+                    }
+                } else if !entry.enabled {
+                    // Stop bots for disabled entry
+                    for inst in &entry.instances {
+                        if let Some(mut b) = bots.remove(&inst.id) { b.stop().ok(); }
+                        cooldowns.remove(&inst.id);
+                    }
+                }
+            }
+            Command::StartStop => {
+                let current = *orch_state.lock().unwrap();
+                match current {
+                    OrchestratorState::Stopping => {
+                        // TUI already set Stopping; teardown happens in main loop
+                        logger::info("orchestrator stopping...");
+                    }
+                    OrchestratorState::Running => {
+                        // TUI set Running (was Stopped → start)
+                        logger::info("orchestrator started");
+                        // Create bots for all enabled entries
+                        let entries = state.lock().unwrap();
+                        for entry in entries.iter() {
+                            if !entry.enabled { continue; }
+                            for inst in &entry.instances {
+                                if !bots.contains_key(&inst.id) {
+                                    match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                                        Ok(bot) => { bots.insert(inst.id.clone(), bot); }
+                                        Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    OrchestratorState::Stopped => {}
+                }
+            }
+            Command::Restart(idx) => {
+                let is_running = *orch_state.lock().unwrap() == OrchestratorState::Running;
+                if !is_running { continue; }
+
+                let entries = state.lock().unwrap();
+                let Some(entry) = entries.get(idx) else { continue };
+                if !entry.enabled { continue; }
+
+                logger::info(&format!("restarting bot {}", entry.name));
+                for inst in &entry.instances {
+                    if let Some(mut b) = bots.remove(&inst.id) {
+                        b.stop().ok();
+                    }
+                    cooldowns.remove(&inst.id);
+                    match LuaBot::new(&entry.script_path, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                        Ok(bot) => { bots.insert(inst.id.clone(), bot); }
+                        Err(e) => logger::error(&format!("failed to restart {}: {}", inst.id, e)),
                     }
                 }
             }
@@ -141,6 +202,7 @@ fn process_commands(
 /// Main orchestration loop. Runs on a background thread.
 pub fn orchestrate(
     state: Arc<Mutex<Vec<BotEntry>>>,
+    orch_state: Arc<Mutex<OrchestratorState>>,
     platform: Box<dyn Platform>,
     _bots_dir: PathBuf,
     cmd_rx: mpsc::Receiver<Command>,
@@ -149,21 +211,30 @@ pub fn orchestrate(
     let mut cooldowns: HashMap<String, Instant> = HashMap::new();
 
     loop {
-        if !process_commands(&cmd_rx, &state, platform.as_ref(), &mut bots, &mut cooldowns) {
+        if !process_commands(&cmd_rx, &state, &orch_state, platform.as_ref(), &mut bots, &mut cooldowns) {
             return;
         }
 
-        // Collect ready instances, clean up disabled ones (brief lock)
-        let ready: Vec<String> = {
-            let mut entries = state.lock().unwrap();
-            for entry in entries.iter_mut() {
-                if entry.enabled { continue; }
-                for inst in &mut entry.instances {
-                    if inst.status != "stopped" {
-                        inst.status = "stopped".into();
-                    }
-                }
+        // Skip tick processing when stopped
+        let current = *orch_state.lock().unwrap();
+        if current == OrchestratorState::Stopping {
+            // Graceful stop: tear down all bots, then transition to Stopped
+            for (_, mut bot) in bots.drain() {
+                bot.stop().ok();
             }
+            cooldowns.clear();
+            *orch_state.lock().unwrap() = OrchestratorState::Stopped;
+            logger::info("orchestrator stopped");
+            continue;
+        }
+        if current != OrchestratorState::Running {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+
+        // Collect ready instances
+        let ready: Vec<String> = {
+            let entries = state.lock().unwrap();
             entries.iter()
                 .filter(|e| e.enabled)
                 .flat_map(|e| e.instances.iter())
@@ -177,8 +248,13 @@ pub fn orchestrate(
 
         for id in &ready {
             // Stay responsive: check commands between each tick
-            if !process_commands(&cmd_rx, &state, platform.as_ref(), &mut bots, &mut cooldowns) {
+            if !process_commands(&cmd_rx, &state, &orch_state, platform.as_ref(), &mut bots, &mut cooldowns) {
                 return;
+            }
+
+            // If orchestrator was stopped mid-tick, break out
+            if *orch_state.lock().unwrap() != OrchestratorState::Running {
+                break;
             }
 
             let Some(bot) = bots.get(id) else { continue };
@@ -197,17 +273,12 @@ pub fn orchestrate(
 
             // Write back status (brief lock)
             let mut entries = state.lock().unwrap();
-            let disabled = entries.iter().any(|e| !e.enabled && e.instances.iter().any(|i| i.id == *id));
             if let Some(inst) = entries.iter_mut()
                 .flat_map(|e| e.instances.iter_mut())
                 .find(|i| i.id == *id)
             {
-                if disabled {
-                    inst.status = "stopped".into();
-                } else {
-                    inst.status = status.unwrap_or_default();
-                    inst.error = err;
-                }
+                inst.status = status.unwrap_or_default();
+                inst.error = err;
             }
         }
 
