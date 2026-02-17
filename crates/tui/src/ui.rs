@@ -36,7 +36,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Blank row after banner
-    lines.push(Line::from(""));
+    // lines.push(Line::from(""));
 
     // Help line as first content line inside the bordered panel
     lines.push(Line::from(vec![
