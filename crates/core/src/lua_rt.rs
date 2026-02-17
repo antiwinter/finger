@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -14,31 +14,43 @@ use crate::logger;
 /// Wrapper around a WindowHandle for Lua userdata.
 struct LuaWindow {
     inner: Rc<RefCell<Box<dyn WindowHandle>>>,
+    active: Rc<Cell<bool>>,
 }
 
 impl LuaUserData for LuaWindow {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("activate", |_, this, ()| {
-            this.inner.borrow_mut().activate();
-            Ok(())
-        });
-
         methods.add_method("click", |_, this, (x_ratio, y_ratio): (f64, f64)| {
+            if !this.active.get() {
+                logger::warn("dropped win:click — window not active");
+                return Ok(());
+            }
             this.inner.borrow_mut().click_relative(x_ratio, y_ratio);
             Ok(())
         });
 
         methods.add_method("tap", |_, this, key: String| {
+            if !this.active.get() {
+                logger::warn("dropped win:tap — window not active");
+                return Ok(());
+            }
             this.inner.borrow_mut().tap(&key);
             Ok(())
         });
 
         methods.add_method("type", |_, this, text: String| {
+            if !this.active.get() {
+                logger::warn("dropped win:type — window not active");
+                return Ok(());
+            }
             this.inner.borrow_mut().type_text(&text);
             Ok(())
         });
 
         methods.add_method("decodev2", |lua, this, ()| {
+            if !this.active.get() {
+                logger::warn("dropped win:decodev2 — window not active");
+                return Ok(LuaNil);
+            }
             let rect = Some(CaptureRect { l: 0, t: 0, w: 150, h: 80 });
             let capture = this.inner.borrow_mut().capture(rect);
             match capture {
@@ -57,6 +69,7 @@ pub struct LuaBot {
     lua: Lua,
     bot_key: LuaRegistryKey,
     win: Rc<RefCell<Box<dyn WindowHandle>>>,
+    active: Rc<Cell<bool>>,
 }
 
 /// Helper to convert mlua::Error -> anyhow::Error
@@ -70,6 +83,14 @@ impl LuaBot {
     pub fn load_meta(path: &Path) -> Result<(String, String)> {
         let lua = Lua::new();
         register_globals(&lua, "").map_err(lua_err)?;
+
+        // Set package.path so require() finds modules in the bot's directory
+        if let Some(bot_dir) = path.parent() {
+            let dir_str = bot_dir.to_string_lossy();
+            let pkg: LuaTable = lua.globals().get("package").map_err(lua_err)?;
+            pkg.set("path", format!("{}/?.lua;{}/?/init.lua", dir_str, dir_str)).map_err(lua_err)?;
+        }
+
         let code = std::fs::read_to_string(path)?;
         let table: LuaTable = lua
             .load(&code)
@@ -90,13 +111,20 @@ impl LuaBot {
     pub fn new(script_path: &Path, win_handle: Box<dyn WindowHandle>) -> Result<Self> {
         let lua = Lua::new();
 
-        // Derive log tag from parent folder name (e.g. wow/bot-rally-hk.lua -> "wow")
+        // Derive log tag from bot folder name (e.g. bots/wow-rally-hk/main.lua -> "wow-rally-hk")
         let tag = script_path
             .parent()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         register_globals(&lua, &tag).map_err(lua_err)?;
+
+        // Set package.path so require() finds modules in the bot's directory
+        if let Some(bot_dir) = script_path.parent() {
+            let dir_str = bot_dir.to_string_lossy();
+            let pkg: LuaTable = lua.globals().get("package").map_err(lua_err)?;
+            pkg.set("path", format!("{}/?.lua;{}/?/init.lua", dir_str, dir_str)).map_err(lua_err)?;
+        }
 
         let code = std::fs::read_to_string(script_path)?;
         let table: LuaTable = lua
@@ -108,17 +136,19 @@ impl LuaBot {
         let bot_key = lua.create_registry_value(table.clone()).map_err(lua_err)?;
 
         let win = Rc::new(RefCell::new(win_handle));
+        let active = Rc::new(Cell::new(false));
 
         // Create win userdata and call start(win)
         let win_ud = lua.create_userdata(LuaWindow {
             inner: Rc::clone(&win),
+            active: Rc::clone(&active),
         }).map_err(lua_err)?;
 
         if let Ok(start_fn) = table.get::<LuaFunction>("start") {
             start_fn.call::<()>(win_ud).map_err(lua_err)?;
         }
 
-        Ok(Self { lua, bot_key, win })
+        Ok(Self { lua, bot_key, win, active })
     }
 
     /// Call tick() -> Option<cooldown_ms>
@@ -166,6 +196,11 @@ impl LuaBot {
     /// Activate the window (bring to foreground).
     pub fn activate(&self) {
         self.win.borrow_mut().activate();
+    }
+
+    /// Set whether the window is currently active (controls whether win actions are allowed).
+    pub fn set_active(&self, active: bool) {
+        self.active.set(active);
     }
 }
 

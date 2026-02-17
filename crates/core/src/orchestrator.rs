@@ -8,8 +8,8 @@ use crate::platform::Platform;
 use crate::lua_rt::LuaBot;
 use crate::logger;
 
-/// Recursively find all bot-*.lua files under `dir`.
-pub fn find_bot_files(dir: &Path) -> Vec<PathBuf> {
+/// Recursively find all directories containing `main.lua` under `dir`.
+pub fn find_bot_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -20,31 +20,31 @@ pub fn find_bot_files(dir: &Path) -> Vec<PathBuf> {
         if path.is_dir() {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             if !name.starts_with('.') && name != "node_modules" {
-                results.extend(find_bot_files(&path));
-            }
-        } else if let Some(name) = path.file_name() {
-            let name = name.to_string_lossy();
-            if name.starts_with("bot-") && name.ends_with(".lua") {
-                results.push(path);
+                let main_lua = path.join("main.lua");
+                if main_lua.is_file() {
+                    results.push(main_lua);
+                } else {
+                    results.extend(find_bot_dirs(&path));
+                }
             }
         }
     }
     results
 }
 
-/// Derive bot name from path: bots/wow/bot-rally-hk.lua -> wow/rally-hk
+/// Derive bot name from main.lua path: bots/wow-rally-hk/main.lua -> wow-rally-hk
 pub fn derive_bot_name(path: &Path, root: &Path) -> String {
-    let rel = path.strip_prefix(root).unwrap_or(path);
+    // path is e.g. bots/wow-rally-hk/main.lua, we want the parent dir relative to root
+    let bot_dir = path.parent().unwrap_or(path);
+    let rel = bot_dir.strip_prefix(root).unwrap_or(bot_dir);
     rel.to_string_lossy()
-        .replace("bot-", "")
-        .replace(".lua", "")
         .replace('\\', "/")
         .to_string()
 }
 
 /// Load all bots from a directory, returning BotEntry list.
 pub fn load_bots(bots_dir: &Path) -> Vec<BotEntry> {
-    let files = find_bot_files(bots_dir);
+    let files = find_bot_dirs(bots_dir);
     let mut entries = Vec::new();
 
     for path in files {
@@ -258,6 +258,7 @@ pub fn orchestrate(
             }
 
             let Some(bot) = bots.get(id) else { continue };
+            bot.set_active(true);
             bot.activate();
             std::thread::sleep(Duration::from_millis(200));
 
@@ -268,6 +269,8 @@ pub fn orchestrate(
                     (5000, None, Some(e.to_string()))
                 }
             };
+
+            bot.set_active(false);
 
             cooldowns.insert(id.clone(), Instant::now() + Duration::from_millis(cd));
 
