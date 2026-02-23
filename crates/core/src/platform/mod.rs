@@ -4,6 +4,9 @@ pub mod hotkey;
 #[cfg(target_os = "macos")]
 pub mod darwin;
 
+#[cfg(target_os = "windows")]
+pub mod win32;
+
 use crate::types::*;
 use crate::logger;
 
@@ -38,7 +41,12 @@ pub fn create_platform(force_stub: bool) -> Box<dyn Platform> {
         logger::register_prefix("darwin", logger::COLOR_GRAY);
         return Box::new(darwin::DarwinPlatform::new());
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        logger::register_prefix("win32", logger::COLOR_GRAY);
+        return Box::new(win32::Win32Platform::new());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         logger::register_prefix("stub", logger::COLOR_GRAY);
         return Box::new(stub::StubPlatform);
