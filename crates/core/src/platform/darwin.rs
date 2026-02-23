@@ -1,4 +1,6 @@
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use core_foundation::array::CFArray;
 use core_foundation::base::TCFType;
@@ -100,6 +102,114 @@ impl Platform for DarwinPlatform {
         };
         win.do_update();
         Box::new(win)
+    }
+
+    fn start_hotkey_listener(&self, flag: Arc<AtomicBool>) {
+        use std::ffi::c_void;
+
+        type CGEventTapProxy = *mut c_void;
+        type CGEventRef = *mut c_void;
+        type CFMachPortRef = *mut c_void;
+        type CFRunLoopSourceRef = *mut c_void;
+        type CFRunLoopRef = *mut c_void;
+        type CFStringRef = *const c_void;
+        type CGEventMask = u64;
+        type CGEventType = u32;
+        type CGEventFlags = u64;
+
+        type CGEventTapCallBack = unsafe extern "C" fn(
+            CGEventTapProxy, CGEventType, CGEventRef, *mut c_void,
+        ) -> CGEventRef;
+
+        const K_CG_HID_EVENT_TAP: u32 = 0;
+        const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
+        const K_CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
+        const CG_EVENT_KEY_DOWN: u32 = 10;
+        const CG_EVENT_FLAGS_CHANGED: u32 = 12;
+        const CG_EVENT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFFFFFE;
+        const K_CG_EVENT_FLAG_MASK_ALTERNATE: u64 = 0x00080000;
+        const K_CG_EVENT_FLAG_MASK_SHIFT: u64 = 0x00020000;
+        const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 0x00100000;
+        const K_CG_EVENT_FLAG_MASK_CONTROL: u64 = 0x00040000;
+        const KEYCODE_K: i64 = 40;
+        const K_CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
+
+        extern "C" {
+            fn CGEventTapCreate(
+                tap: u32, place: u32, options: u32,
+                events_of_interest: CGEventMask,
+                callback: CGEventTapCallBack,
+                user_info: *mut c_void,
+            ) -> CFMachPortRef;
+            fn CFMachPortCreateRunLoopSource(
+                allocator: *const c_void, port: CFMachPortRef, order: i64,
+            ) -> CFRunLoopSourceRef;
+            fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+            fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+            fn CFRunLoopRun();
+            fn CGEventGetFlags(event: CGEventRef) -> CGEventFlags;
+            fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
+            fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+            static kCFRunLoopCommonModes: CFStringRef;
+        }
+
+        unsafe extern "C" fn hotkey_callback(
+            _proxy: CGEventTapProxy, event_type: CGEventType,
+            event: CGEventRef, user_info: *mut c_void,
+        ) -> CGEventRef {
+            unsafe {
+                if event_type == CG_EVENT_TAP_DISABLED_BY_TIMEOUT { return event; }
+                if event_type != CG_EVENT_KEY_DOWN { return event; }
+                let flags = CGEventGetFlags(event);
+                let keycode = CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE);
+                let has_cmd   = (flags & K_CG_EVENT_FLAG_MASK_COMMAND) != 0;
+                let has_shift = (flags & K_CG_EVENT_FLAG_MASK_SHIFT)   != 0;
+                let no_alt    = (flags & K_CG_EVENT_FLAG_MASK_ALTERNATE) == 0;
+                let no_ctrl   = (flags & K_CG_EVENT_FLAG_MASK_CONTROL)   == 0;
+                if keycode == KEYCODE_K && has_cmd && has_shift && no_alt && no_ctrl {
+                    let flag = &*(user_info as *const AtomicBool);
+                    flag.store(true, Ordering::Release);
+                }
+                event
+            }
+        }
+
+        std::thread::spawn(move || unsafe {
+            let mask: CGEventMask = (1 << CG_EVENT_KEY_DOWN) | (1 << CG_EVENT_FLAGS_CHANGED);
+            let flag_ptr = Arc::into_raw(flag) as *mut c_void;
+            let tap = CGEventTapCreate(
+                K_CG_HID_EVENT_TAP, K_CG_HEAD_INSERT_EVENT_TAP,
+                K_CG_EVENT_TAP_OPTION_LISTEN_ONLY, mask, hotkey_callback, flag_ptr,
+            );
+            if tap.is_null() {
+                crate::logger::error(
+                    "failed to create event tap — grant Accessibility permission to your terminal",
+                );
+                let _ = Arc::from_raw(flag_ptr as *const AtomicBool);
+                return;
+            }
+            let source   = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
+            let run_loop = CFRunLoopGetCurrent();
+            CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
+            CGEventTapEnable(tap, true);
+            CFRunLoopRun();
+        });
+    }
+
+    fn activate_terminal(&self) {
+        let ppid = unsafe { libc::getppid() };
+        let script = format!(
+            "tell application \"System Events\" to set frontmost of \\
+             first process whose unix id is {} to true",
+            ppid
+        );
+        ProcessCommand::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok();
     }
 }
 

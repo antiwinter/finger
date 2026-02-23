@@ -1,11 +1,13 @@
 pub mod stub;
-pub mod hotkey;
 
 #[cfg(target_os = "macos")]
 pub mod darwin;
 
 #[cfg(target_os = "windows")]
 pub mod win32;
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::types::*;
 use crate::logger;
@@ -27,6 +29,10 @@ pub trait WindowHandle: Send {
 pub trait Platform: Send {
     fn get_instances(&self, pattern: &str) -> Vec<(WindowId, String)>;
     fn create_window(&self, pattern: &str, window_id: WindowId) -> Box<dyn WindowHandle>;
+    /// Start a background thread listening for the global hotkey; sets `flag` when triggered.
+    fn start_hotkey_listener(&self, flag: Arc<AtomicBool>);
+    /// Bring the terminal / launcher window that owns this process to the foreground.
+    fn activate_terminal(&self);
 }
 
 /// Create the platform appropriate for the current OS.

@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use crate::types::*;
 use crate::logger;
 use super::{Platform, WindowHandle};
@@ -30,6 +33,14 @@ impl Platform for StubPlatform {
                 w: 1920, h: 1080, cx: 960, cy: 540,
             },
         })
+    }
+
+    fn start_hotkey_listener(&self, _flag: Arc<AtomicBool>) {
+        logger::info_p("stub", "start_hotkey_listener (no-op)");
+    }
+
+    fn activate_terminal(&self) {
+        logger::info_p("stub", "activate_terminal (no-op)");
     }
 }
 

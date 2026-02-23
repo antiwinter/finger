@@ -1,5 +1,7 @@
 use std::thread::sleep;
 use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -188,7 +190,82 @@ impl Platform for Win32Platform {
         win.do_update();
         Box::new(win)
     }
-}
+    fn start_hotkey_listener(&self, flag: Arc<AtomicBool>) {
+        use std::ffi::c_void;
+
+        type HWND  = *mut c_void;
+        type BOOL  = i32;
+        type UINT  = u32;
+        type WPARAM = usize;
+        type LPARAM = isize;
+        type DWORD = u32;
+        type LONG  = i32;
+
+        #[repr(C)] struct POINT { x: LONG, y: LONG }
+        #[repr(C)] struct MSG {
+            hwnd:    HWND,
+            message: UINT,
+            w_param: WPARAM,
+            l_param: LPARAM,
+            time:    DWORD,
+            pt:      POINT,
+        }
+
+        const MOD_CONTROL:  u32 = 0x0002;
+        const MOD_SHIFT:    u32 = 0x0004;
+        const MOD_NOREPEAT: u32 = 0x4000;
+        const VK_K:         u32 = 0x4B;
+        const WM_HOTKEY:    u32 = 0x0312;
+        const HOTKEY_ID:    i32 = 1;
+
+        extern "system" {
+            fn RegisterHotKey(hwnd: HWND, id: i32, fs_modifiers: UINT, vk: UINT) -> BOOL;
+            fn GetMessageW(
+                msg: *mut MSG, hwnd: HWND,
+                msg_filter_min: UINT, msg_filter_max: UINT,
+            ) -> BOOL;
+        }
+
+        std::thread::spawn(move || unsafe {
+            let ok = RegisterHotKey(
+                std::ptr::null_mut(), HOTKEY_ID,
+                MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_K,
+            );
+            if ok == 0 {
+                crate::logger::error(
+                    "failed to register global hotkey Ctrl+Shift+K — \
+                     another application may have claimed it",
+                );
+                return;
+            }
+            crate::logger::info("global hotkey Ctrl+Shift+K registered");
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                if msg.message == WM_HOTKEY && msg.w_param == HOTKEY_ID as usize {
+                    flag.store(true, Ordering::Release);
+                }
+            }
+        });
+    }
+
+    fn activate_terminal(&self) {
+        use std::ffi::c_void;
+        type HWND = *mut c_void;
+        type BOOL = i32;
+        const SW_RESTORE: i32 = 9;
+        extern "system" {
+            fn GetConsoleWindow() -> HWND;
+            fn SetForegroundWindow(hwnd: HWND) -> BOOL;
+            fn ShowWindow(hwnd: HWND, cmd_show: i32) -> BOOL;
+        }
+        unsafe {
+            let hwnd = GetConsoleWindow();
+            if !hwnd.is_null() {
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+            }
+        }
+    }}
 
 // ─── WindowHandle ─────────────────────────────────────────────────────────────
 

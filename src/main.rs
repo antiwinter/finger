@@ -13,7 +13,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use finger_core::{logger, orchestrator, settings::Settings};
-use finger_core::platform::{create_platform, hotkey};
+use finger_core::platform::create_platform;
 use finger_core::types::{Command, OrchestratorState};
 
 fn main() -> Result<()> {
@@ -91,10 +91,10 @@ fn main() -> Result<()> {
 
     // Start global hotkey listener (Alt+Shift+K)
     let hotkey_flag = Arc::new(AtomicBool::new(false));
-    hotkey::start_hotkey_listener(Arc::clone(&hotkey_flag));
+    platform.start_hotkey_listener(Arc::clone(&hotkey_flag));
 
     // Run TUI event loop on main thread
-    let result = finger_tui::event::run(&mut terminal, &mut app, hotkey_flag);
+    let result = finger_tui::event::run(&mut terminal, &mut app, hotkey_flag, platform.as_ref());
 
     // Restore terminal
     disable_raw_mode()?;

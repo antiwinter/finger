@@ -6,7 +6,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use finger_core::platform::hotkey;
+use finger_core::platform::Platform;
 use finger_core::types::OrchestratorState;
 
 use crate::App;
@@ -16,6 +16,7 @@ pub fn run(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     hotkey_flag: Arc<AtomicBool>,
+    platform: &dyn Platform,
 ) -> anyhow::Result<()> {
     loop {
         if app.should_quit {
@@ -28,7 +29,7 @@ pub fn run(
             if is_running {
                 app.start_stop(); // enter Stopping state
             }
-            hotkey::activate_terminal();
+            platform.activate_terminal();
         }
 
         // Drain log messages
