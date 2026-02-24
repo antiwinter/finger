@@ -313,10 +313,6 @@ impl WindowHandle for DarwinWindow {
             Some(r) => r,
             None => return,
         };
-        let pid = match self.pid {
-            Some(p) => p,
-            None => return,
-        };
 
         let x = region.l as f64 + x_ratio * region.w as f64;
         let y = region.t as f64 + y_ratio * region.h as f64;
@@ -333,7 +329,7 @@ impl WindowHandle for DarwinWindow {
             point,
             CGMouseButton::Left,
         ) {
-            mouse_down.post_to_pid(pid);
+            mouse_down.post(CGEventTapLocation::HID);
         }
 
         std::thread::sleep(std::time::Duration::from_millis(15));
@@ -344,7 +340,7 @@ impl WindowHandle for DarwinWindow {
             point,
             CGMouseButton::Left,
         ) {
-            mouse_up.post_to_pid(pid);
+            mouse_up.post(CGEventTapLocation::HID);
         }
 
         std::thread::sleep(std::time::Duration::from_millis(15));

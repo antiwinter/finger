@@ -33,9 +33,6 @@ fn save_key() -> &'static str {
 fn window_pattern() -> &'static str {
     if IS_DARWIN { r"test\.txt" } else { r"test\.txt - Notepad" }
 }
-fn app_pattern() -> &'static str {
-    if IS_DARWIN { "TextEdit" } else { "Notepad" }
-}
 fn window_title() -> &'static str {
     if IS_DARWIN { "test.txt" } else { "test.txt - Notepad" }
 }
@@ -58,12 +55,12 @@ fn save_screenshot_as_jpg(cap: &Capture, path: &str) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-/// Cmd/Ctrl+S, then read `test.txt` back.
+/// Cmd/Ctrl+S, then read `logs/test.txt` back.
 fn save_and_read(win: &mut Box<dyn WindowHandle>) -> Option<String> {
     win.tap(save_key());
     sleep(0.3);
     if IS_DARWIN { win.tap("enter"); sleep(0.2); } // dismiss "Keep formatting?" sheet
-    fs::read_to_string("test.txt").ok()
+    fs::read_to_string("logs/test.txt").ok()
 }
 
 /// Sample up to `limit` unique RGB colours from a BGRA `Capture`.
@@ -87,15 +84,16 @@ fn ensure_editor() -> Result<(), Failed> {
     if !platform.get_instances(window_pattern()).is_empty() {
         return Ok(());
     }
+    fs::create_dir_all("logs").ok();
     if IS_DARWIN {
-        let _ = Command::new("rm").args(["-f", "test.txt"]).status();
-        let _ = Command::new("touch").arg("test.txt").status();
-        Command::new("open").arg("test.txt").status()
-            .map_err(|e| Failed::from(format!("open test.txt: {e}")))?;
+        let _ = Command::new("rm").args(["-f", "logs/test.txt"]).status();
+        let _ = Command::new("touch").arg("logs/test.txt").status();
+        Command::new("open").arg("logs/test.txt").status()
+            .map_err(|e| Failed::from(format!("open logs/test.txt: {e}")))?;
     } else {
-        let _ = Command::new("cmd").args(["/C", "del /f test.txt 2>nul"]).status();
-        let _ = Command::new("cmd").args(["/C", "type nul > test.txt"]).status();
-        Command::new("cmd").args(["/C", "start notepad test.txt"]).status()
+        let _ = Command::new("cmd").args(["/C", "del /f logs\\test.txt 2>nul"]).status();
+        let _ = Command::new("cmd").args(["/C", "type nul > logs\\test.txt"]).status();
+        Command::new("cmd").args(["/C", "start notepad logs\\test.txt"]).status()
             .map_err(|e| Failed::from(format!("start notepad: {e}")))?;
     }
     sleep(2.0);
@@ -109,10 +107,7 @@ fn setup_window() -> Result<Box<dyn WindowHandle>, Failed> {
         return Err(Failed::from("running in stub mode – unsupported platform"));
     }
     ensure_editor()?;
-    let windows: Vec<_> = platform.get_instances(window_pattern())
-        .into_iter()
-        .chain(platform.get_instances(app_pattern()))
-        .collect();
+    let windows = platform.get_instances(window_pattern());
     let (id, _) = windows.into_iter().next()
         .ok_or_else(|| Failed::from(format!("{} window not found after launch", app_name())))?;
     let mut win = platform.create_window(window_title(), id);
@@ -277,8 +272,8 @@ fn test_10_capture_full() -> Result<(), Failed> {
     if unique < 3 {
         return Err(Failed::from(format!("buffer looks corrupt ({unique} unique colours)")));
     }
-    match save_screenshot_as_jpg(&cap, "test-capture-full.jpg") {
-        Ok(_)  => println!("  ✓ saved test-capture-full.jpg"),
+    match save_screenshot_as_jpg(&cap, "logs/test-capture-full.jpg") {
+        Ok(_)  => println!("  ✓ saved logs/test-capture-full.jpg"),
         Err(e) => println!("  ⚠️  could not save JPEG: {e}"),
     }
     println!("  {}x{}, {unique}+ colours, {} bytes", cap.width, cap.height, cap.data.len());
@@ -306,11 +301,11 @@ fn test_11_capture_partial() -> Result<(), Failed> {
     }
     let unique = count_unique_colors(&cap, 50);
     if unique < 3 {
-        let _ = save_screenshot_as_jpg(&cap, "test-capture-partial-debug.jpg");
+        let _ = save_screenshot_as_jpg(&cap, "logs/test-capture-partial-debug.jpg");
         return Err(Failed::from(format!("buffer looks corrupt ({unique} unique colours)")));
     }
-    match save_screenshot_as_jpg(&cap, "test-capture-partial.jpg") {
-        Ok(_)  => println!("  ✓ saved test-capture-partial.jpg"),
+    match save_screenshot_as_jpg(&cap, "logs/test-capture-partial.jpg") {
+        Ok(_)  => println!("  ✓ saved logs/test-capture-partial.jpg"),
         Err(e) => println!("  ⚠️  could not save JPEG: {e}"),
     }
     println!("  {}x{}, {unique}+ colours", cap.width, cap.height);
