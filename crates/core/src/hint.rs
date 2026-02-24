@@ -73,8 +73,8 @@ pub fn decode_hint_v2(capture: &Capture) -> Option<String> {
     #[cfg(debug_assertions)]
     save_capture(capture);
 
-    // Try multiple Y rows (every 3rd row) to find the hint strip
-    for y_start in (0..capture.height.min(60)).step_by(3) {
+    // Try every 3rd row across the full image height
+    for y_start in (0..capture.height).step_by(3) {
         if let Some(s) = try_decode_row(capture, y_start) {
             return Some(s);
         }
@@ -97,7 +97,7 @@ fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
     let mut marker_width: u32 = 0;
     let mut decoded: Vec<DecodedChar> = Vec::new();
 
-    let max_x = capture.width.min(200);
+    let max_x = capture.width;
 
     for x in (0..max_x).step_by(1) {
         if x * 4 + 3 >= capture.bytes_per_row {

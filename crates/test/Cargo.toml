@@ -7,6 +7,10 @@ edition = "2021"
 name = "test-autogui"
 path = "autogui.rs"
 
+[[bin]]
+name = "test-hint"
+path = "hint_decode.rs"
+
 [dependencies]
 finger-core    = { path = "../core" }
 image          = "0.24"
