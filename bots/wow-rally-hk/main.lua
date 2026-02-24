@@ -163,7 +163,7 @@ return {
                 return 240 -- return after 4min
             elseif h.zone == BB then
                 test_hk()
-            elseif h.cd > 0 then
+            elseif (h.cd or 0) > 0 then
                 h.cd = os.time() + h.cd
                 set_state(WAIT_HEARTH, h)
             end
