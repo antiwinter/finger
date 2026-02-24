@@ -8,7 +8,8 @@ local win = nil
 local chars = {} -- {[id] = state}
 local pos = 1 -- which char slot we're on (0 = watcher)
 local last_login = 0 -- anti-AFK timer (0 = trigger on first tick)
-local DONE, WAIT_RALLY, WAIT_HK = 0, 1, 2
+local DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK = 0, 1, 2, 3
+local SW, BB = 1453, 1434 -- zone IDs for Stormwind and Booty Bay
 
 local function reset()
     chars = {
@@ -34,7 +35,8 @@ end
 
 local function pick(tst)
     for i, c in ipairs(chars) do
-        if c.st == tst then
+        if c.st == tst and -- also check not on cd
+        (c.st ~= WAIT_HEARTH or c.cd < os.time()) then
             return c
         end
     end
@@ -63,9 +65,10 @@ local function logout()
     F.sleep(6)
 end
 
-local function fly()
-    win:type("=-========")
-    -- next alway test_hk, so don't need sleep 10 here
+local function do_hearth_or_fly()
+    -- use item:6948
+    win:type("=-====")
+    F.sleep(11)
 end
 
 local function switch_char(target)
@@ -103,10 +106,20 @@ end
 
 local function switch_next()
     -- use cases: current char may got a buff, need logout, pick a char to login
+    -- 1. check hearth cd
     -- 2. if any waiting for hk, switch to watcher
     -- 3. if any waiting for rally, switch to it or add new entry
 
-    local c = pick(WAIT_HK)
+    local c = pick(WAIT_HEARTH)
+    if c then
+        switch_char(c.id)
+        do_hearth_or_fly()
+        test_hk()
+        switch_next()
+        return
+    end
+
+    c = pick(WAIT_HK)
     if c then
         switch_char(0)
         return
@@ -143,8 +156,17 @@ return {
         if h.hint == 'rally' then
             F.log("got rally for", h.name)
             set_state(WAIT_HK, h)
-            fly()
-            return 240 -- need 4 mins to fly to booty bay
+            do_hearth_or_fly()
+            h = hint() -- read hint again
+            if h.onFlight == 1 then
+                F.log("fly to bb", h.name)
+                return 240 -- return after 4min
+            elseif h.zone == BB then
+                test_hk()
+            elseif h.cd > 0 then
+                h.cd = os.time() + h.cd
+                set_state(WAIT_HEARTH, h)
+            end
         elseif h.hint == 'hkpre' then
             local c = pick(WAIT_HK)
             if c then
