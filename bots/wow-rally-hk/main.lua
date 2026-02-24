@@ -6,10 +6,10 @@
 --   1 = char1 (city), 2 = char2 (city), ...
 --
 -- chars[id] states:
---   'waiting_rally'  — polling for rally hint
---   number (ready_at) — hearth on CD, timestamp when ready
---   'waiting_hk'     — hearth'd to BB, awaiting HK buff
---   'done'           — got HK this cycle
+--   0 polling for rally hint
+--   1 hearth on CD, timestamp when ready
+--   2 hearth'd to BB, awaiting HK buff
+--   3 got HK this cycle
 local win = nil
 local chars = {} -- {[id] = state}
 local current_pos = 1 -- which char slot we're on (0 = watcher)
