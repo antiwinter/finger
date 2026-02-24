@@ -42,17 +42,18 @@ local function pick(tst)
 end
 
 local function hint()
-    local h = win:decodev2()
-    if not h then
-        return nil
+    local h = win:decodev2() or ''
+    -- h is like 'rally~名字~1234~2134~0'
+    local parts = {}
+    for part in h:gmatch("[^~]+") do
+        parts[#parts + 1] = part
     end
-    -- FIXME: h is some like 'rally~名字~1234~2134~0'
     return {
-        hint = '',
-        name = '',
-        zone = 1234,
-        cd = 2134,
-        onFlight = 0
+        hint = parts[1],
+        name = parts[2],
+        zone = tonumber(parts[3]),
+        cd = tonumber(parts[4]),
+        onFlight = tonumber(parts[5])
     }
 end
 
@@ -92,7 +93,7 @@ end
 
 local function test_hk()
     F.sleep(45)
-    local h = hint() or {}
+    local h = hint()
     if h.hint == "hk" then
         F.log("got hk for", h.name)
         set_state(DONE, h)
@@ -124,11 +125,12 @@ local function switch_next()
 
     c = pick(WAIT_RALLY)
     if not c then
-        chars[#chars + 1] = {
-            id = #chars + 1,
+        local n = #chars + 1
+        chars[n] = {
+            id = n,
             st = WAIT_RALLY
         }
-        c = chars[#chars]
+        c = chars[n]
     end
 
     -- change char or anti-afk
@@ -147,7 +149,7 @@ return {
     stop = function()
     end,
     tick = function()
-        local h = hint() or {}
+        local h = hint()
 
         if h.hint == 'rally' then
             if h.cd == 0 then
@@ -170,10 +172,10 @@ return {
     end,
 
     get_status = function()
-        local parts = {}
+        local s = "|"
         for i, c in ipairs(chars) do
-            parts[#parts + 1] = c.id .. ":" .. c.st
+            s = s .. (i == pos and "*" or "") .. (c.name or "?") .. ":" .. c.st .. "|"
         end
-        return pos .. "-> " .. table.concat(parts, "|")
+        return s
     end
 }
