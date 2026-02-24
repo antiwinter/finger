@@ -473,6 +473,7 @@ dependencies = [
  "chrono",
  "core-foundation",
  "core-graphics",
+ "image",
  "libc",
  "mlua",
  "rand",

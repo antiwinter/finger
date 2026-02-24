@@ -1,8 +1,9 @@
 use crate::types::Capture;
 
-/// Save capture data for debugging (only in debug builds).
-/// Writes decoded nibbles as hex and raw RGB values to logs/.
-#[cfg(debug_assertions)]
+/// Save capture data for debugging.
+/// Writes decoded nibbles as hex, raw RGB values, and a PNG to logs/.
+/// Only compiled when the `debug-capture` feature is enabled.
+#[cfg(feature = "debug-capture")]
 fn save_capture(capture: &Capture) {
     use std::fmt::Write as _;
     use std::fs;
@@ -37,6 +38,18 @@ fn save_capture(capture: &Capture) {
     if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-rgb.txt")) {
         f.write_all(rgb_data.as_bytes()).ok();
     }
+
+    // Save PNG: convert BGRA → RGBA
+    {
+        let mut rgba = Vec::with_capacity(capture.data.len());
+        for chunk in capture.data.chunks(4) {
+            rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]);
+        }
+        if let Some(img) = image::RgbaImage::from_raw(capture.width, capture.height, rgba) {
+            img.save(logs_dir.join("hint-v2-capture.png")).ok();
+        }
+    }
+
     crate::logger::info_p("hint", &format!(
         "saved capture {}x{} to logs/",
         capture.width, capture.height
@@ -70,7 +83,7 @@ struct DecodedChar {
 /// the marker sequence [0x00...][0x7F...] data [0x7F...][0x00...]
 /// Returns the decoded ASCII string, or None.
 pub fn decode_hint_v2(capture: &Capture) -> Option<String> {
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug-capture")]
     save_capture(capture);
 
     // Try every 3rd row across the full image height
