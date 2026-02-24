@@ -33,18 +33,12 @@ local set_state = function(st, h)
 end
 
 local function pick(tst)
-    local cc = nil
     for i, c in ipairs(chars) do
-        if tst and c.st == tst then
+        if c.st == tst and -- also check not on cd
+        (c.st ~= WAIT_HEARTH or c.cd < os.time()) then
             return c
-        elseif not cc or c.st > cc.st then
-            if c.st ~= WAIT_HEARTH or c.cd < os.time() then
-                cc = c
-            end
         end
     end
-
-    return cc
 end
 
 local function hint()
@@ -75,6 +69,17 @@ local function do_hearth()
 end
 
 local function switch_char(target)
+
+    if target == pos and -- refuse same char switch
+    os.time() < last_login + 1000 then
+        return
+    end
+
+    local c = chars[target] or {
+        id = 0
+    }
+
+    F.log("switch char", c.id, c.name, c.st)
     logout()
     local dir = target > pos and "down" or "up"
     for i = 1, math.abs(target - pos) do
@@ -87,8 +92,8 @@ end
 
 local function test_hk()
     F.sleep(45)
-    local h = hint()
-    if h and h.hint == "hk" then
+    local h = hint() or {}
+    if h.hint == "hk" then
         F.log("got hk for", h.name)
         set_state(DONE, h)
         return
@@ -104,7 +109,6 @@ local function switch_next()
 
     local c = pick(WAIT_HEARTH)
     if c then
-        F.log("switching to char", c.id, "for hearth cd", c.cd)
         switch_char(c.id)
         do_hearth()
         test_hk()
@@ -112,7 +116,13 @@ local function switch_next()
         return
     end
 
-    local c = pick()
+    c = pick(WAIT_HK)
+    if c then
+        switch_char(0)
+        return
+    end
+
+    c = pick(WAIT_RALLY)
     if not c then
         chars[#chars + 1] = {
             id = #chars + 1,
@@ -121,12 +131,7 @@ local function switch_next()
         c = chars[#chars]
     end
 
-    if c.id == pos and -- several mininutes
-    os.time() < last_login + 1000 then
-        return
-    end
     -- change char or anti-afk
-    F.log("switch to", c.id, c.name, c.st)
     switch_char(c.id)
 end
 
@@ -142,7 +147,7 @@ return {
     stop = function()
     end,
     tick = function()
-        local h = hint()
+        local h = hint() or {}
 
         if h.hint == 'rally' then
             if h.cd == 0 then
