@@ -8,7 +8,7 @@ local win = nil
 local chars = {} -- {[id] = state}
 local pos = 1 -- which char slot we're on (0 = watcher)
 local last_login = 0 -- anti-AFK timer (0 = trigger on first tick)
-local DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK = 0, 1, 2, 3
+local ERR, DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK = -1, 0, 1, 2, 3
 local SW, BB = 1453, 1434 -- zone IDs for Stormwind and Booty Bay
 
 local function reset()
@@ -99,9 +99,11 @@ local function test_hk()
     if h.hint == "hk" then
         F.log("got hk for", h.name)
         set_state(DONE, h)
-        return
+    elseif h.zone ~= BB then
+        set_state(ERR, h)
+    else
+        set_state(WAIT_HK, h)
     end
-    set_state(WAIT_HK, h)
 end
 
 local function switch_next()
@@ -161,11 +163,11 @@ return {
             if h.onFlight == 1 then
                 F.log("fly to bb", h.name)
                 return 240 -- return after 4min
-            elseif h.zone == BB then
-                test_hk()
-            elseif (h.cd or 0) > 0 then
+            elseif h.zone == SW and (h.cd or 0) > 0 then
                 h.cd = os.time() + h.cd
                 set_state(WAIT_HEARTH, h)
+            else
+                test_hk()
             end
         elseif h.hint == 'hkpre' then
             local c = pick(WAIT_HK)
