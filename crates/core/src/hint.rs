@@ -30,8 +30,10 @@ fn save_capture(capture: &Capture) {
         rgb_data.push('\n');
     }
 
-    let logs_dir = std::path::Path::new("logs");
-    fs::create_dir_all(logs_dir).ok();
+    // Resolve logs/ relative to workspace root (two levels up from this crate)
+    let logs_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../logs");
+    fs::create_dir_all(&logs_dir).ok();
     if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-raw.txt")) {
         f.write_all(raw_hex.as_bytes()).ok();
     }
@@ -81,21 +83,59 @@ struct DecodedChar {
 /// Decode the hint-v2 color grid from a capture.
 /// Scans every 3rd pixel on each row, uses an FSM to detect
 /// the marker sequence [0x00...][0x7F...] data [0x7F...][0x00...]
-/// Returns the decoded ASCII string, or None.
-pub fn decode_hint_v2(capture: &Capture) -> Option<String> {
+/// Splits decoded bytes by `~` into segments.
+/// Segments containing non-alphanumeric bytes have all bytes OR'd with 0x80
+/// and are re-decoded as UTF-8 (lossy).
+/// Returns Vec where index 0 = raw string, indices 1.. = parsed segments.
+pub fn decode_hint_v2(capture: &Capture) -> Option<Vec<String>> {
     #[cfg(feature = "debug-capture")]
     save_capture(capture);
 
-    // Try every 3rd row across the full image height
     for y_start in (0..capture.height).step_by(3) {
-        if let Some(s) = try_decode_row(capture, y_start) {
-            return Some(s);
+        if let Some(raw_bytes) = try_decode_row_raw(capture, y_start) {
+            if raw_bytes.is_empty() {
+                continue;
+            }
+            let raw_string: String = raw_bytes.iter()
+                .filter(|&&b| b == b'~' || (b as char).is_ascii_graphic() || b == b' ')
+                .map(|&b| b as char)
+                .collect();
+
+            let mut result = vec![raw_string];
+            for seg in raw_bytes.split(|&b| b == b'~') {
+                let is_alnum = seg.iter().all(|&b| b.is_ascii_alphanumeric());
+                if is_alnum {
+                    result.push(String::from_utf8_lossy(seg).into_owned());
+                } else {
+                    let utf8_bytes: Vec<u8> = seg.iter().map(|&b| b | 0x80).collect();
+                    result.push(String::from_utf8_lossy(&utf8_bytes).into_owned());
+                }
+            }
+            return Some(result);
         }
     }
     None
 }
 
-fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
+/// Try to decode raw bytes from a single row (FSM + RLE normalization).
+/// Returns all decoded bytes without ASCII filtering.
+fn try_decode_row_raw(capture: &Capture, y: u32) -> Option<Vec<u8>> {
+    let (decoded, marker_width) = try_decode_row_fsm(capture, y)?;
+
+    let mut result = Vec::new();
+    for d in &decoded {
+        let char_count = ((d.n as f64 * 2.0) / marker_width as f64).round() as u32;
+        for _ in 0..char_count.max(1) {
+            result.push(d.c);
+        }
+    }
+
+    if result.is_empty() { None } else { Some(result) }
+}
+
+/// FSM that extracts RLE-encoded bytes from a row.
+/// Returns (decoded_chars, marker_width) or None.
+fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u32)> {
     #[derive(Debug, PartialEq)]
     enum State {
         Start,
@@ -174,23 +214,7 @@ fn try_decode_row(capture: &Capture, y: u32) -> Option<String> {
         return None;
     }
 
-    // Normalize: each character spans approximately marker_width pixels
-    let mut result = String::new();
-    for d in &decoded {
-        let char_count = ((d.n as f64 * 2.0) / marker_width as f64).round() as u32;
-        let ch = d.c as char;
-        if ch.is_ascii_graphic() || ch == ' ' {
-            for _ in 0..char_count.max(1) {
-                result.push(ch);
-            }
-        }
-    }
-
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
+    Some((decoded, marker_width))
 }
 
 #[cfg(test)]

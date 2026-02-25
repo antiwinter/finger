@@ -55,7 +55,13 @@ impl LuaUserData for LuaWindow {
             let capture = this.inner.borrow_mut().capture(rect);
             match capture {
                 Some(cap) => match hint::decode_hint_v2(&cap) {
-                    Some(s) => Ok(LuaValue::String(lua.create_string(&s)?)),
+                    Some(segments) => {
+                        let table = lua.create_table()?;
+                        for (i, seg) in segments.iter().enumerate() {
+                            table.set(i as i64, lua.create_string(seg.as_bytes())?)?;
+                        }
+                        Ok(LuaValue::Table(table))
+                    },
                     None => Ok(LuaNil),
                 },
                 None => Ok(LuaNil),

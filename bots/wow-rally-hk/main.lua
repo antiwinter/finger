@@ -43,18 +43,17 @@ local function pick(tst)
 end
 
 local function hint()
-    local h = win:decodev2() or ''
-    -- h is like 'rally~名字~1234~2134~0'
-    local parts = {}
-    for part in h:gmatch("[^~]+") do
-        parts[#parts + 1] = part
+    local h = win:decodev2()
+    if not h then
+        return nil
     end
+    -- h is {[0]=raw, [1]=hint, [2]=name, [3]=zone, [4]=cd, [5]=onFlight}
     return {
-        hint = parts[1],
-        name = parts[2],
-        zone = tonumber(parts[3]),
-        cd = tonumber(parts[4]),
-        onFlight = tonumber(parts[5])
+        hint = h[1],
+        name = h[2],
+        zone = tonumber(h[3]),
+        cd = tonumber(h[4]),
+        onFlight = tonumber(h[5])
     }
 end
 
