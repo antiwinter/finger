@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
+use crossterm::{execute, event::{EnableMouseCapture, DisableMouseCapture}};
 use finger_core::types::{BotEntry, Command, OrchestratorState};
 use finger_core::settings::Settings;
 
@@ -10,6 +11,7 @@ pub struct App {
     pub orch_state: Arc<Mutex<OrchestratorState>>,
     pub selected: usize,
     pub log_visible: bool,
+    pub mouse_capture: bool,
     pub log_messages: Vec<String>,
     pub log_scroll: usize, // scroll offset from bottom (0 = latest)
     pub log_rx: mpsc::Receiver<String>,
@@ -32,6 +34,7 @@ impl App {
             orch_state,
             selected: 0,
             log_visible: true,
+            mouse_capture: true,
             log_messages: Vec::new(),
             log_scroll: 0,
             log_rx,
@@ -39,6 +42,16 @@ impl App {
             settings_path,
             confirm: None,
             should_quit: false,
+        }
+    }
+
+    pub fn toggle_mouse_capture(&mut self) {
+        self.mouse_capture = !self.mouse_capture;
+        let mut stdout = std::io::stdout();
+        if self.mouse_capture {
+            execute!(stdout, EnableMouseCapture).ok();
+        } else {
+            execute!(stdout, DisableMouseCapture).ok();
         }
     }
 

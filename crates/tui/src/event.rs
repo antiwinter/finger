@@ -91,6 +91,9 @@ pub fn run(
                         KeyCode::Char('l') | KeyCode::Char('L') => {
                             app.toggle_log();
                         }
+                        KeyCode::Char('m') | KeyCode::Char('M') => {
+                            app.toggle_mouse_capture();
+                        }
                         _ => {}
                     }
                 }

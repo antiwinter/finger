@@ -55,21 +55,27 @@ pub fn register_prefix(prefix: &str, color: u8) {
 fn write_log(level: &str, prefix: &str, color: u8, msg: &str) {
     let ts = Local::now().format("%H:%M:%S").to_string();
 
-    // File always gets plain text
+    // File always gets plain text (all lines together)
     let file_line = if prefix.is_empty() {
         format!("[{}] [{}] {}", ts, level, msg)
     } else {
         format!("[{}] [{}] [{}] {}", ts, level, prefix, msg)
     };
 
-    // TUI gets structured data
-    let tui_line = format!("{}\x1f{}\x1f{}\x1f{}\x1f{}", level, prefix, color, ts, msg);
-
     if let Some(logger) = LOGGER.get() {
         let mut l = logger.lock().unwrap();
         writeln!(l.file, "{}", file_line).ok();
         if let Some(tx) = &l.tui_tx {
-            tx.send(tui_line).ok();
+            // First line: full structured entry
+            let mut parts = msg.splitn(2, '\n');
+            let first = parts.next().unwrap_or("");
+            tx.send(format!("{}\x1f{}\x1f{}\x1f{}\x1f{}", level, prefix, color, ts, first)).ok();
+            // Continuation lines: no timestamp/prefix, just indented text
+            if let Some(rest) = parts.next() {
+                for cont in rest.split('\n') {
+                    tx.send(format!("_\x1f\x1f0\x1f\x1f{}", cont)).ok();
+                }
+            }
         }
     }
 }

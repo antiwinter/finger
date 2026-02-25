@@ -45,7 +45,7 @@ end
 local function hint()
     local h = win:decodev2()
     if not h then
-        return nil
+        return {}
     end
     -- h is {[0]=raw, [1]=hint, [2]=name, [3]=zone, [4]=cd, [5]=onFlight}
     return {

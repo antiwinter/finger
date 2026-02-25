@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use mlua::prelude::*;
@@ -76,6 +77,46 @@ pub struct LuaBot {
     bot_key: LuaRegistryKey,
     win: Rc<RefCell<Box<dyn WindowHandle>>>,
     active: Rc<Cell<bool>>,
+    on_error: Arc<dyn Fn(Vec<String>) + Send + Sync>,
+}
+
+/// Format an mlua runtime error: strip `[string "…"]` wrappers and
+/// absolute path prefixes before `bots/`, returning one line per traceback line.
+fn format_mlua_error(e: &mlua::Error) -> Vec<String> {
+    e.to_string()
+        .lines()
+        .map(|line| {
+            // mlua prefixes the message line with "runtime error: " — strip it
+            let line = line.strip_prefix("runtime error: ").unwrap_or(line);
+            let mut out = String::new();
+            let mut rest = line;
+            while let Some(s) = rest.find("[string \"") {
+                out.push_str(&rest[..s]);
+                rest = &rest[s + 9..];
+                if let Some(end) = rest.find("\"]" ) {
+                    let path = &rest[..end];
+                    let short = path.find("bots/").map_or(path, |i| &path[i + 5..]);
+                    out.push_str(short);
+                    rest = &rest[end + 2..];
+                } else {
+                    out.push_str(rest);
+                    rest = "";
+                }
+            }
+            out.push_str(rest);
+            out.trim().to_string()
+        })
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// Build the Lua chunk name for a script path.
+/// Uses `@`-prefix so Lua treats it as a filename (no `[string ""]` wrapper,
+/// no Lua-side truncation). Path is shortened to the part after `bots/`.
+fn chunk_name(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    let short = s.find("bots/").map_or(s.as_ref(), |i| &s[i + 5..]);
+    format!("@{}", short)
 }
 
 /// Helper to convert mlua::Error -> anyhow::Error
@@ -100,7 +141,7 @@ impl LuaBot {
         let code = std::fs::read_to_string(path)?;
         let table: LuaTable = lua
             .load(&code)
-            .set_name(path.to_string_lossy())
+            .set_name(chunk_name(path))
             .eval()
             .map_err(lua_err)?;
 
@@ -114,7 +155,12 @@ impl LuaBot {
     }
 
     /// Create a new LuaBot, load the script, and call start(win).
-    pub fn new(script_path: &Path, instance_id: &str, win_handle: Box<dyn WindowHandle>) -> Result<Self> {
+    pub fn new(
+        script_path: &Path,
+        instance_id: &str,
+        win_handle: Box<dyn WindowHandle>,
+        on_error: Arc<dyn Fn(Vec<String>) + Send + Sync>,
+    ) -> Result<Self> {
         let lua = Lua::new();
         register_globals(&lua, instance_id).map_err(lua_err)?;
 
@@ -126,11 +172,12 @@ impl LuaBot {
         }
 
         let code = std::fs::read_to_string(script_path)?;
+        let on_err = Arc::clone(&on_error);
         let table: LuaTable = lua
             .load(&code)
-            .set_name(script_path.to_string_lossy())
+            .set_name(chunk_name(script_path))
             .eval()
-            .map_err(lua_err)?;
+            .map_err(|e| { on_err(format_mlua_error(&e)); lua_err(e) })?;
 
         let bot_key = lua.create_registry_value(table.clone()).map_err(lua_err)?;
 
@@ -144,17 +191,20 @@ impl LuaBot {
         }).map_err(lua_err)?;
 
         if let Ok(start_fn) = table.get::<LuaFunction>("start") {
-            start_fn.call::<()>(win_ud).map_err(lua_err)?;
+            let on_err = Arc::clone(&on_error);
+            start_fn.call::<()>(win_ud)
+                .map_err(|e| { on_err(format_mlua_error(&e)); lua_err(e) })?;
         }
 
-        Ok(Self { lua, bot_key, win, active })
+        Ok(Self { lua, bot_key, win, active, on_error })
     }
 
-    /// Call tick() -> Option<cooldown_ms>
+    /// Call tick() -> Option<cooldown_ms>. Fires on_error on runtime failure.
     pub fn tick(&self) -> Result<Option<u64>> {
         let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
         let tick_fn: LuaFunction = table.get("tick").map_err(lua_err)?;
-        let result: LuaValue = tick_fn.call(()).map_err(lua_err)?;
+        let result: LuaValue = tick_fn.call(())
+            .map_err(|e| { (self.on_error)(format_mlua_error(&e)); lua_err(e) })?;
         match result {
             LuaValue::Integer(ms) => Ok(Some(ms as u64)),
             LuaValue::Number(ms) => Ok(Some(ms as u64)),
@@ -178,7 +228,8 @@ impl LuaBot {
     pub fn reset(&self) -> Result<()> {
         let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
         if let Ok(f) = table.get::<LuaFunction>("reset") {
-            f.call::<()>(()).map_err(lua_err)?;
+            f.call::<()>(())
+                .map_err(|e| { (self.on_error)(format_mlua_error(&e)); lua_err(e) })?;
         }
         Ok(())
     }
@@ -187,7 +238,8 @@ impl LuaBot {
     pub fn stop(&mut self) -> Result<()> {
         let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
         if let Ok(f) = table.get::<LuaFunction>("stop") {
-            f.call::<()>(()).map_err(lua_err)?;
+            f.call::<()>(())
+                .map_err(|e| { (self.on_error)(format_mlua_error(&e)); lua_err(e) })?;
         }
         Ok(())
     }

@@ -47,7 +47,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         Span::styled("space", Style::default().fg(Color::Yellow)),
         Span::raw(" to select, "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" to reset:"),
+        Span::raw(" to reset, "),
+        Span::styled("m", Style::default().fg(Color::Yellow)),
+        Span::raw(if app.mouse_capture { " mouse (scroll)" } else { " mouse (select)" }),
     ]));
     lines.push(Line::from(""));
 
@@ -173,11 +175,15 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn parse_log_line(raw: &str) -> Line<'_> {
     let parts: Vec<&str> = raw.splitn(5, '\x1f').collect();
     if parts.len() < 5 {
-        // Fallback for unstructured messages
         return Line::from(raw);
     }
 
     let level = parts[0];
+
+    // Continuation line: level == "_", just render the indented text as-is
+    if level == "_" {
+        return Line::from(Span::styled(parts[4], Style::default().fg(Color::DarkGray)));
+    }
     let prefix = parts[1];
     let color_idx: u8 = parts[2].parse().unwrap_or(0);
     let timestamp = parts[3];

@@ -8,6 +8,36 @@ use crate::platform::Platform;
 use crate::lua_rt::LuaBot;
 use crate::logger;
 
+/// Build the on_error callback for a bot instance.
+/// The VM fires this with formatted traceback lines; we log and disable the entry.
+fn make_on_error(
+    id: String,
+    state: Arc<Mutex<Vec<BotEntry>>>,
+) -> Arc<dyn Fn(Vec<String>) + Send + Sync> {
+    Arc::new(move |lines: Vec<String>| {
+        // First line is the header; the rest are indented continuation lines.
+        // Log as a single message so the logger emits one timestamped entry
+        // followed by prefix-free indented continuation lines.
+        let mut msg = String::from("runtime error:");
+        for line in &lines {
+            msg.push('\n');
+            msg.push_str("  ");
+            msg.push_str(line);
+        }
+        logger::error_p(&id, &msg);
+        let mut entries = state.lock().unwrap();
+        if let Some(entry) = entries.iter_mut()
+            .find(|e| e.instances.iter().any(|i| i.id == id))
+        {
+            entry.enabled = false;
+            if let Some(inst) = entry.instances.iter_mut().find(|i| i.id == id) {
+                inst.error = lines.into_iter().next();
+                inst.status = String::new();
+            }
+        }
+    })
+}
+
 /// Recursively find all directories containing `main.lua` under `dir`.
 pub fn find_bot_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
@@ -84,7 +114,7 @@ pub fn scan_instances(entries: &mut Vec<BotEntry>, platform: &dyn Platform) {
 /// Drain pending commands. Returns false on Quit.
 fn process_commands(
     cmd_rx: &mpsc::Receiver<Command>,
-    state: &Mutex<Vec<BotEntry>>,
+    state: &Arc<Mutex<Vec<BotEntry>>>,
     orch_state: &Mutex<OrchestratorState>,
     platform: &dyn Platform,
     bots: &mut HashMap<String, LuaBot>,
@@ -133,9 +163,13 @@ fn process_commands(
                         if bots.contains_key(&inst.id) {
                             bots.get(&inst.id).unwrap().reset().ok();
                         } else {
-                            match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                            match LuaBot::new(
+                                &entry.script_path, &inst.id,
+                                platform.create_window(&entry.window_pattern, inst.window_id),
+                                make_on_error(inst.id.clone(), Arc::clone(&state)),
+                            ) {
                                 Ok(bot) => { bots.insert(inst.id.clone(), bot); }
-                                Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
+                                Err(_) => {} // on_error already fired inside lua_rt
                             }
                         }
                     }
@@ -163,9 +197,13 @@ fn process_commands(
                             if !entry.enabled { continue; }
                             for inst in &entry.instances {
                                 if !bots.contains_key(&inst.id) {
-                                    match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                                    match LuaBot::new(
+                                        &entry.script_path, &inst.id,
+                                        platform.create_window(&entry.window_pattern, inst.window_id),
+                                        make_on_error(inst.id.clone(), Arc::clone(&state)),
+                                    ) {
                                         Ok(bot) => { bots.insert(inst.id.clone(), bot); }
-                                        Err(e) => logger::error(&format!("failed to start {}: {}", inst.id, e)),
+                                        Err(_) => {} // on_error already fired inside lua_rt
                                     }
                                 }
                             }
@@ -188,9 +226,13 @@ fn process_commands(
                         b.stop().ok();
                     }
                     cooldowns.remove(&inst.id);
-                    match LuaBot::new(&entry.script_path, &inst.id, platform.create_window(&entry.window_pattern, inst.window_id)) {
+                    match LuaBot::new(
+                        &entry.script_path, &inst.id,
+                        platform.create_window(&entry.window_pattern, inst.window_id),
+                        make_on_error(inst.id.clone(), Arc::clone(&state)),
+                    ) {
                         Ok(bot) => { bots.insert(inst.id.clone(), bot); }
-                        Err(e) => logger::error(&format!("failed to restart {}: {}", inst.id, e)),
+                        Err(_) => {} // on_error already fired inside lua_rt
                     }
                 }
             }
@@ -260,29 +302,41 @@ pub fn orchestrate(
             let Some(bot) = bots.get(id) else { continue };
             bot.set_active(true);
             bot.activate();
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(500));
 
-            let (cd, status, err) = match bot.tick() {
-                Ok(ms) => (ms.unwrap_or(5000), bot.get_status().ok(), None),
-                Err(e) => {
-                    logger::error(&format!("tick error {}: {}", id, e));
-                    (5000, None, Some(e.to_string()))
-                }
-            };
-
+            let tick_result = bot.tick();
+            let status = if tick_result.is_ok() { bot.get_status().ok() } else { None };
             bot.set_active(false);
 
-            cooldowns.insert(id.clone(), Instant::now() + Duration::from_millis(cd));
-
-            // Write back status (brief lock)
-            let mut entries = state.lock().unwrap();
-            if let Some(inst) = entries.iter_mut()
-                .flat_map(|e| e.instances.iter_mut())
-                .find(|i| i.id == *id)
-            {
-                inst.status = status.unwrap_or_default();
-                inst.error = err;
+            if let Ok(ms) = tick_result {
+                let cd = ms.unwrap_or(5000);
+                cooldowns.insert(id.clone(), Instant::now() + Duration::from_millis(cd));
+                let mut entries = state.lock().unwrap();
+                if let Some(inst) = entries.iter_mut()
+                    .flat_map(|e| e.instances.iter_mut())
+                    .find(|i| i.id == *id)
+                {
+                    inst.status = status.unwrap_or_default();
+                    inst.error = None;
+                }
             }
+            // On Err: on_error fired inside lua_rt; entry.enabled already set to false.
+            // The post-tick sweep below handles cleanup via the natural disable path.
+        }
+
+        // Sweep bots whose entry was disabled (e.g. by a runtime error via on_error).
+        // This is the single removal path — the same one Toggle-disable uses.
+        let disabled_ids: Vec<String> = {
+            let entries = state.lock().unwrap();
+            bots.keys()
+                .filter(|id| !entries.iter()
+                    .any(|e| e.enabled && e.instances.iter().any(|i| &i.id == *id)))
+                .cloned()
+                .collect()
+        };
+        for id in disabled_ids {
+            if let Some(mut bot) = bots.remove(&id) { bot.stop().ok(); }
+            cooldowns.remove(&id);
         }
 
         std::thread::sleep(Duration::from_millis(100));
