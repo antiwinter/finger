@@ -16,14 +16,18 @@ fn save_capture(capture: &Capture) {
     for y in 0..capture.height {
         for x in 0..capture.width {
             let nibble = get_nibble(capture, x, y);
-            if x > 0 { raw_hex.push(' '); }
+            if x > 0 {
+                raw_hex.push(' ');
+            }
             write!(raw_hex, "{:02x}", nibble).ok();
 
             let idx = (y * stride + x * 4) as usize;
             let b = capture.data[idx];
             let g = capture.data[idx + 1];
             let r = capture.data[idx + 2];
-            if x > 0 { rgb_data.push_str(" | "); }
+            if x > 0 {
+                rgb_data.push_str(" | ");
+            }
             write!(rgb_data, "{:3},{:3},{:3}", r, g, b).ok();
         }
         raw_hex.push('\n');
@@ -31,8 +35,7 @@ fn save_capture(capture: &Capture) {
     }
 
     // Resolve logs/ relative to workspace root (two levels up from this crate)
-    let logs_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../logs");
+    let logs_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../logs");
     fs::create_dir_all(&logs_dir).ok();
     if let Ok(mut f) = fs::File::create(logs_dir.join("hint-v2-raw.txt")) {
         f.write_all(raw_hex.as_bytes()).ok();
@@ -52,10 +55,13 @@ fn save_capture(capture: &Capture) {
         }
     }
 
-    crate::logger::info_p("hint", &format!(
-        "saved capture {}x{} to logs/",
-        capture.width, capture.height
-    ));
+    crate::logger::info_p(
+        "hint",
+        &format!(
+            "saved capture {}x{} to logs/",
+            capture.width, capture.height
+        ),
+    );
 }
 
 /// Extract a 7-bit value from a single pixel in a Capture buffer.
@@ -96,7 +102,8 @@ pub fn decode_hint_v2(capture: &Capture) -> Option<Vec<String>> {
             if raw_bytes.is_empty() {
                 continue;
             }
-            let raw_string: String = raw_bytes.iter()
+            let raw_string: String = raw_bytes
+                .iter()
                 .filter(|&&b| b == b'~' || (b as char).is_ascii_graphic() || b == b' ')
                 .map(|&b| b as char)
                 .collect();
@@ -130,13 +137,17 @@ fn try_decode_row_raw(capture: &Capture, y: u32) -> Option<Vec<u8>> {
         }
     }
 
-    if result.is_empty() { None } else { Some(result) }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
 
 /// FSM that extracts RLE-encoded bytes from a row.
 /// Returns (decoded_chars, marker_width) or None.
 fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u32)> {
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, PartialOrd)]
     enum State {
         Start,
         M0,     // accumulating 0x00 marker bytes
@@ -157,6 +168,11 @@ fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u3
             break;
         }
         let val = get_nibble(capture, x, y);
+
+        // Marker must start within first 100 pixels; bail early if not found
+        if x >= 100 && state < State::Decode {
+            return None;
+        }
 
         match state {
             State::Start => {

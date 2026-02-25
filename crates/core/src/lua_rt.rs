@@ -51,7 +51,7 @@ impl LuaUserData for LuaWindow {
                 logger::warn("dropped win:decodev2 — window not active");
                 return Ok(LuaNil);
             }
-            let rect = Some(CaptureRect { l: 0, t: 0, w: 150, h: 80 });
+            let rect = Some(CaptureRect { l: 0, t: 0, w: 320, h: 80 });
             let capture = this.inner.borrow_mut().capture(rect);
             match capture {
                 Some(cap) => match hint::decode_hint_v2(&cap) {
