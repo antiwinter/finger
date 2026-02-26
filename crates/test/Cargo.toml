@@ -12,8 +12,12 @@ name = "test-hint"
 path = "test-hint.rs"
 
 [[bin]]
-name = "decode"
-path = "decode.rs"
+name = "decode-img"
+path = "decode-img.rs"
+
+[[bin]]
+name = "capture-decode"
+path = "capture-decode.rs"
 
 [dependencies]
 finger-core    = { path = "../core" }
