@@ -3,7 +3,6 @@ use crate::types::Capture;
 /// Save capture data for debugging.
 /// Writes decoded nibbles as hex, raw RGB values, and a PNG to logs/.
 /// Only compiled when the `debug-capture` feature is enabled.
-#[cfg(feature = "debug-capture")]
 fn save_capture(capture: &Capture) {
     use std::fmt::Write as _;
     use std::fs;
@@ -94,7 +93,6 @@ struct DecodedChar {
 /// and are re-decoded as UTF-8 (lossy).
 /// Returns Vec where index 0 = raw string, indices 1.. = parsed segments.
 pub fn decode_hint_v2(capture: &Capture) -> Option<Vec<String>> {
-    #[cfg(feature = "debug-capture")]
     save_capture(capture);
 
     for y_start in (0..capture.height).step_by(3) {
