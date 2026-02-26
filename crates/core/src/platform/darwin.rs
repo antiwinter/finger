@@ -442,7 +442,7 @@ impl WindowHandle for DarwinWindow {
             ),
         };
 
-        let image_option = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageNominalResolution;
+        let image_option = kCGWindowImageBoundsIgnoreFraming;
         let image = create_image(
             cg_rect,
             kCGWindowListOptionIncludingWindow,

@@ -182,7 +182,7 @@ fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u3
             State::M0 => {
                 if val == 0x00 {
                     marker_width += 1;
-                } else if val == 0x7F {
+                } else if val == 0x7F && marker_width > 2 {
                     state = State::M1;
                     marker_width += 1;
                 } else {
