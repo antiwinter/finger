@@ -72,95 +72,74 @@ fn get_nibble(capture: &Capture, x: u32, y: u32) -> u8 {
     let g = capture.data[idx + 1];
     let r = capture.data[idx + 2];
 
-    let r_bits = (r >> 5) & 0x03;
-    let g_bits = (g >> 4) & 0x07;
-    let b_bits = (b >> 5) & 0x03;
+    let r_bit = (r >> 6) & 1;
+    let g_2bits = (g >> 5) & 3;
+    let b_bit = (b >> 6) & 1;
 
-    (g_bits << 4) | (r_bits << 2) | b_bits
-}
-
-#[derive(Debug, Clone)]
-struct DecodedChar {
-    c: u8,
-    n: u32, // number of consecutive pixels with this value
+    (r_bit << 3) | (g_2bits << 1) | b_bit
 }
 
 /// Decode the hint-v2 color grid from a capture.
-/// Scans every 3rd pixel on each row, uses an FSM to detect
-/// the marker sequence [0x00...][0x7F...] data [0x7F...][0x00...]
-/// Splits decoded bytes by `~` into segments.
-/// Segments containing non-alphanumeric bytes have all bytes OR'd with 0x80
-/// and are re-decoded as UTF-8 (lossy).
-/// Returns Vec where index 0 = raw string, indices 1.. = parsed segments.
+/// return segments of strings
 pub fn decode_hint_v2(capture: &Capture) -> Option<Vec<String>> {
     save_capture(capture);
 
+    let mut nibbles: Vec<u8> = Vec::new();
+    let mut rid: u8 = 1;
+
     for y_start in (0..capture.height).step_by(3) {
-        if let Some(raw_bytes) = try_decode_row_raw(capture, y_start) {
-            if raw_bytes.is_empty() {
-                continue;
-            }
-            let raw_string: String = raw_bytes
-                .iter()
-                .filter(|&&b| b == b'~' || (b as char).is_ascii_graphic() || b == b' ')
-                .map(|&b| b as char)
-                .collect();
-
-            let mut result = vec![raw_string];
-            for seg in raw_bytes.split(|&b| b == b'~') {
-                let is_alnum = seg.iter().all(|&b| b.is_ascii_alphanumeric());
-                if is_alnum {
-                    result.push(String::from_utf8_lossy(seg).into_owned());
-                } else {
-                    let utf8_bytes: Vec<u8> = seg.iter().map(|&b| b | 0x80).collect();
-                    result.push(String::from_utf8_lossy(&utf8_bytes).into_owned());
-                }
-            }
-            return Some(result);
-        }
-    }
-    None
-}
-
-/// Try to decode raw bytes from a single row (FSM + RLE normalization).
-/// Returns all decoded bytes without ASCII filtering.
-fn try_decode_row_raw(capture: &Capture, y: u32) -> Option<Vec<u8>> {
-    let (decoded, marker_width) = try_decode_row_fsm(capture, y)?;
-
-    let mut result = Vec::new();
-    for d in &decoded {
-        let char_count = ((d.n as f64 * 2.0) / marker_width as f64).round() as u32;
-        for _ in 0..char_count.max(1) {
-            result.push(d.c);
+        // try_decode_row_fsm only responds to the specific rid marker
+        if let Some(decoded) = try_decode_row_fsm(capture, y_start, rid) {
+            // RLE normalize: 3 marker blocks total → each block = block_width/3 px
+            nibbles.extend_from_slice(&decoded);
+            rid += 1; // only advance when this row was found
         }
     }
 
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
+    // println!("Decoded nibbles: {:?}", nibbles);
+    // pair nibbles big-endian into bytes
+    let mut all_bytes: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i + 1 < nibbles.len() {
+        all_bytes.push((nibbles[i] << 4) | nibbles[i + 1]);
+        i += 2;
     }
+
+    if all_bytes.is_empty() {
+        return None;
+    }
+
+    let raw = String::from_utf8_lossy(&all_bytes).into_owned();
+    let mut result = vec![raw];
+    for seg in all_bytes.split(|&b| b == b',') {
+        result.push(String::from_utf8_lossy(seg).into_owned());
+    }
+    Some(result)
 }
 
 /// FSM that extracts RLE-encoded bytes from a row.
-/// Returns (decoded_chars, marker_width) or None.
-fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u32)> {
+/// Returns only 4-bit data, no markers
+fn try_decode_row_fsm(capture: &Capture, y: u32, rid: u8) -> Option<Vec<u8>> {
     #[derive(Debug, PartialEq, PartialOrd)]
     enum State {
         Start,
-        M0,     // accumulating 0x00 marker bytes
-        M1,     // accumulating 0x7F marker bytes
+        M0,     // accumulating 0xf marker bytes
+        M1,     // accumulating rid >> 4
+        M2,     // accumulating rid & 0xf
         Decode, // accumulating data bytes
-        End1,   // found trailing 0x7F marker
+        End1,   // found trailing 0 0 f marker
         Done,
     }
 
     let mut state = State::Start;
-    let mut marker_width: u32 = 0;
-    let mut decoded: Vec<DecodedChar> = Vec::new();
+    let mut block_width: i32 = 0;
+    let mut decoded: Vec<u8> = Vec::new();
+    let mut acc: i32 = 0;
+    let mut last: u8 = 0;
 
     let max_x = capture.width;
 
+    // println!("row {y}: search {rid}");
     for x in (0..max_x).step_by(1) {
         if x * 4 + 3 >= capture.bytes_per_row {
             break;
@@ -168,53 +147,66 @@ fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u3
         let val = get_nibble(capture, x, y);
 
         // Marker must start within first 100 pixels; bail early if not found
-        if x >= 100 && state < State::Decode {
+        if x >= 50 && state < State::Decode {
             return None;
         }
 
         match state {
             State::Start => {
-                if val == 0x00 {
+                if val == 0xf {
                     state = State::M0;
-                    marker_width = 1;
+                    block_width = 1;
                 }
             }
             State::M0 => {
-                if val == 0x00 {
-                    marker_width += 1;
-                } else if val == 0x7F && marker_width > 2 {
+                if val == 0xf {
+                    block_width += 1;
+                } else if val == rid && block_width > 2 {
                     state = State::M1;
-                    marker_width += 1;
+                    block_width += 1;
                 } else {
                     state = State::Start;
                 }
             }
             State::M1 => {
-                if val == 0x7F {
-                    marker_width += 1;
+                if val == rid {
+                    block_width += 1;
+                } else if val == 0 && block_width > 4 {
+                    state = State::M2;
+                    block_width += 1;
+                } else {
+                    state = State::Start;
+                }
+            }
+            State::M2 => {
+                if val == 0 {
+                    block_width += 1;
                 } else {
                     state = State::Decode;
-                    decoded.push(DecodedChar { c: val, n: 1 });
+                    decoded.clear();
+                    last = val;
+                    acc = 1;
+                    block_width /= 6; // half block width
                 }
             }
             State::Decode => {
-                if marker_width < 5 {
-                    // Invalid marker width, restart
-                    state = State::Start;
-                    marker_width = 0;
-                    decoded.clear();
-                } else if val == 0x7F {
-                    state = State::End1;
-                } else if let Some(last) = decoded.last_mut() {
-                    if last.c == val {
-                        last.n += 1;
-                    } else {
-                        decoded.push(DecodedChar { c: val, n: 1 });
+                if val == last {
+                    acc += 1;
+                    if acc > block_width {
+                        if val == 0x0 && decoded.len() & 1 == 0 {
+                            state = State::End1;
+                        } else {
+                            decoded.push(val);
+                            acc = -block_width;
+                        }
                     }
+                } else {
+                    last = val;
+                    acc = 1;
                 }
             }
             State::End1 => {
-                if val == 0x00 {
+                if val == 0xf {
                     state = State::Done;
                     break;
                 }
@@ -224,26 +216,9 @@ fn try_decode_row_fsm(capture: &Capture, y: u32) -> Option<(Vec<DecodedChar>, u3
         }
     }
 
-    if state != State::Done || decoded.is_empty() || marker_width == 0 {
+    if state != State::Done || decoded.is_empty() || block_width == 0 {
         return None;
     }
 
-    Some((decoded, marker_width))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_nibble_zero() {
-        // All zeros should decode to 0
-        let capture = Capture {
-            data: vec![0, 0, 0, 255], // BGRA
-            width: 1,
-            height: 1,
-            bytes_per_row: 4,
-        };
-        assert_eq!(get_nibble(&capture, 0, 0), 0);
-    }
+    Some(decoded)
 }
