@@ -8,7 +8,7 @@ local win = nil
 local chars = {} -- {[id] = state}
 local pos = 1 -- which char slot we're on (0 = watcher)
 local last_login = 0 -- anti-AFK timer (0 = trigger on first tick)
-local ERR, DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK = -1, 0, 1, 2, 3
+local ERR, DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK, WATCHER = -1, 0, 1, 2, 3, 4
 local SW, BB = 1453, 1434 -- zone IDs for Stormwind and Booty Bay
 
 local function reset()
@@ -67,7 +67,7 @@ end
 local function do_hearth_or_fly()
     -- use item:6948
     win:type("=-====")
-    F.sleep(11)
+    F.sleep(20)
 end
 
 local function switch_char(target)
@@ -105,7 +105,7 @@ local function test_hk()
     end
 end
 
-local function switch_next()
+local function pick_next()
     -- use cases: current char may got a buff, need logout, pick a char to login
     -- 1. check hearth cd
     -- 2. if any waiting for hk, switch to watcher
@@ -113,17 +113,12 @@ local function switch_next()
 
     local c = pick(WAIT_HEARTH)
     if c then
-        switch_char(c.id)
-        do_hearth_or_fly()
-        test_hk()
-        switch_next()
-        return
+        return c.id
     end
 
     c = pick(WAIT_HK)
     if c then
-        switch_char(0)
-        return
+        return 0
     end
 
     c = pick(WAIT_RALLY)
@@ -136,9 +131,50 @@ local function switch_next()
         c = chars[n]
     end
 
-    -- change char or anti-afk
-    switch_char(c.id)
+    return c.id
 end
+
+local fsm = {
+    [WAIT_RALLY] = function(h)
+        if h.hint == 'rally' then
+            F.log("got rally for", h.name)
+            do_hearth_or_fly()
+            h = hint() -- read hint again
+            if h.onFlight == 1 then
+                set_state(WAIT_HK, h)
+                F.log("fly to bb", h.name)
+                return 240 -- return after 4min
+            elseif (h.cd or 0) > 0 then
+                h.cd = os.time() + h.cd
+                set_state(WAIT_HEARTH, h)
+            else -- not on cd, not flying, cannot get to BB
+                set_state(ERR, h)
+            end
+        end
+    end,
+    [WAIT_HEARTH] = function(h)
+        do_hearth_or_fly()
+        test_hk()
+    end,
+    [WAIT_HK] = function(h)
+        test_hk()
+    end,
+    [WATCHER] = function(h)
+        if h.hint == 'hkpre' then
+            local c = pick(WAIT_HK)
+            if c then
+                switch_char(c.id)
+                test_hk()
+            end
+        end
+    end,
+    [ERR] = function(h)
+        F.log("shouldn't entry", ERR, h.name, h.zone, pos)
+    end,
+    [DONE] = function(h)
+        F.log("done for", h.name)
+    end
+}
 
 -- ── bot interface ────────────────────────────────────────
 return {
@@ -152,31 +188,12 @@ return {
     stop = function()
     end,
     tick = function()
-        local h = hint()
-
-        if h.hint == 'rally' then
-            F.log("got rally for", h.name)
-            set_state(WAIT_HK, h)
-            do_hearth_or_fly()
-            h = hint() -- read hint again
-            if h.onFlight == 1 then
-                F.log("fly to bb", h.name)
-                return 240 -- return after 4min
-            elseif h.zone == SW and (h.cd or 0) > 0 then
-                h.cd = os.time() + h.cd
-                set_state(WAIT_HEARTH, h)
-            else
-                test_hk()
-            end
-        elseif h.hint == 'hkpre' then
-            local c = pick(WAIT_HK)
-            if c then
-                switch_char(c.id)
-                test_hk()
-            end
+        local st = chars[pos] and chars[pos].st or WATCHER
+        local n = fsm[st](hint())
+        if not n then 
+            switch_char(pick_next())
         end
-
-        switch_next()
+        return n
     end,
 
     get_status = function()
