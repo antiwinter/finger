@@ -56,7 +56,15 @@ Choose one travel method per character:
 
 1. Park the char in front of the **Stormwind flight master**.
 2. Bind the **Interact with Target** key to `-`.
-3. Bind the fly-to-BB macro to `=` *(macro string: TBD)*.
+3. Bind the fly-to-BB macro to `=`.
+```
+/tar dungar long
+/click GossipPopup1Button1
+/click StaticPopup1Button1
+/run SelectGossipOption(1)
+/run for i=1,NumTaxiNodes() do print(i, TaxiNodeName(i)) end
+/run TakeTaxiNode(10)
+```
 
 **Option B — Hearth**
 1. Set the char's hearth to **Booty Bay inn**.
