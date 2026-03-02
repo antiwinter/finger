@@ -27,7 +27,7 @@ Log in characters **from bottom to top** in the character selection screen:
 |------|------|----------|
 | 0 (top) | **Watcher** | Booty Bay inn |
 | 1–N | **Buff chars** | Stormwind or Orgrimmar |
-| last | **Stop char** | Any inn/city that cannot receive Rally (e.g. Ironforge) |
+| last | **Stop char** | Any inn/city that cannot receive Rally (e.g. Ironforge / Thunder Bluff) |
 
 > The stop char acts as a sentinel so the bot knows when to wrap around.
 
@@ -50,6 +50,10 @@ The bot uses two keys per buff char to travel to Booty Bay:
 Choose one travel method per character:
 
 **Option A — Fly (Alliance only)**
+
+> Horde flight to BB requires multiple manual stops and cannot be automated with a macro.
+> Horde players must use Option B.
+
 1. Park the char in front of the **Stormwind flight master**.
 2. Bind the **Interact with Target** key to `-`.
 3. Bind the fly-to-BB macro to `=` *(macro string: TBD)*.
