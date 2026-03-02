@@ -17,6 +17,49 @@ for incoming HK pre-announcements.
 | `ERR`         | -1    | Unexpected state, logged and stalled         |
 | `WATCHER`     | 4     | pos=0 / chars[0] nil – listens for `hkpre`  |
 
+## Game Setup
+
+### 1. Character Order
+
+Log in characters **from bottom to top** in the character selection screen:
+
+| Slot | Role | Location |
+|------|------|----------|
+| 0 (top) | **Watcher** | Booty Bay inn |
+| 1–N | **Buff chars** | Stormwind or Orgrimmar |
+| last | **Stop char** | Any inn/city that cannot receive Rally (e.g. Ironforge) |
+
+> The stop char acts as a sentinel so the bot knows when to wrap around.
+
+### 2. WeakAura
+
+Install the **hintlib** WeakAura — it encodes in-game state (zone, hint type, hearth CD,
+flight status) into the pixel hint read by the bot.
+
+*Wago import string: TBD*
+
+### 3. Key Bindings
+
+The bot uses two keys per buff char to travel to Booty Bay:
+
+| Key | Action |
+|-----|--------|
+| `=` | Trigger travel (fly or hearth) |
+| `-` | Interact with NPC / taxi confirm (fly option only) |
+
+Choose one travel method per character:
+
+**Option A — Fly (Alliance only)**
+1. Park the char in front of the **Stormwind flight master**.
+2. Bind the **Interact with Target** key to `-`.
+3. Bind the fly-to-BB macro to `=` *(macro string: TBD)*.
+
+**Option B — Hearth**
+1. Set the char's hearth to **Booty Bay inn**.
+2. Bind the **Hearthstone** (item 6948) to `=`.
+
+---
+
 ## State Machine
 
 ```mermaid
