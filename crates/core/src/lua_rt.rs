@@ -199,15 +199,15 @@ impl LuaBot {
         Ok(Self { lua, bot_key, win, active, on_error })
     }
 
-    /// Call tick() -> Option<cooldown_ms>. Fires on_error on runtime failure.
-    pub fn tick(&self) -> Result<Option<u64>> {
+    /// Call tick() -> Option<cooldown_s>. Fires on_error on runtime failure.
+    pub fn tick(&self) -> Result<Option<f64>> {
         let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
         let tick_fn: LuaFunction = table.get("tick").map_err(lua_err)?;
         let result: LuaValue = tick_fn.call(())
             .map_err(|e| { (self.on_error)(format_mlua_error(&e)); lua_err(e) })?;
         match result {
-            LuaValue::Integer(ms) => Ok(Some(ms as u64)),
-            LuaValue::Number(ms) => Ok(Some(ms as u64)),
+            LuaValue::Integer(s) => Ok(Some(s as f64)),
+            LuaValue::Number(s) => Ok(Some(s)),
             _ => Ok(None),
         }
     }
@@ -261,17 +261,34 @@ fn register_globals(lua: &Lua, tag: &str) -> mlua::Result<()> {
 
     // F.sleep(seconds)
     let sleep_fn = lua.create_function(|_, secs: f64| {
-        sleep::sleep_jitter(secs);
+        let ms = (secs * 1000.0).max(0.0).round() as u64;
+        sleep::ms(ms);
         Ok(())
     })?;
     f_table.set("sleep", sleep_fn)?;
+
+    // F.sleep_jittered(seconds, percent=0.3)
+    let sleep_jittered_fn = lua.create_function(|_, (secs, percent): (f64, Option<f64>)| {
+        let ms = (secs * 1000.0).max(0.0).round() as u64;
+        let pct = percent.unwrap_or(0.3);
+        sleep::jittered_ms(ms, pct);
+        Ok(())
+    })?;
+    f_table.set("sleep_jittered", sleep_jittered_fn)?;
 
     // F.log(msg) — auto-prefixed with tag from script folder name (blue)
     let tag = tag.to_string();
     if !tag.is_empty() {
         logger::register_prefix(&tag, logger::COLOR_BLUE);
     }
-    let log_fn = lua.create_function(move |_, msg: String| {
+    let log_fn = lua.create_function(move |lua, args: LuaMultiValue| {
+        let tostring: LuaFunction = lua.globals().get("tostring")?;
+        let mut parts = Vec::with_capacity(args.len());
+        for arg in args {
+            let s: String = tostring.call(arg)?;
+            parts.push(s);
+        }
+        let msg = parts.join(" ");
         if tag.is_empty() {
             logger::info(&msg);
         } else {

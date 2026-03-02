@@ -9,6 +9,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::logger;
+use crate::sleep;
 use crate::types::*;
 use super::{Platform, WindowHandle};
 
@@ -324,9 +325,9 @@ impl Win32Window {
             let down = key_input(vk, false);
             let up   = key_input(vk, true);
             SendInput(&[down], std::mem::size_of::<INPUT>() as i32);
-            sleep(Duration::from_millis(20));
+            sleep::jittered_ms(20, 0.3);
             SendInput(&[up],   std::mem::size_of::<INPUT>() as i32);
-            sleep(Duration::from_millis(20));
+            sleep::jittered_ms(20, 0.3);
         }
     }
 
@@ -335,9 +336,9 @@ impl Win32Window {
             let down = unicode_input(ch, false);
             let up   = unicode_input(ch, true);
             SendInput(&[down], std::mem::size_of::<INPUT>() as i32);
-            sleep(Duration::from_millis(20));
+            sleep::jittered_ms(20, 0.3);
             SendInput(&[up],   std::mem::size_of::<INPUT>() as i32);
-            sleep(Duration::from_millis(20));
+            sleep::jittered_ms(20, 0.3);
         }
     }
 }
@@ -381,7 +382,6 @@ impl WindowHandle for Win32Window {
         let screen_x = region.l + (x_ratio * region.w as f64) as i32;
         let screen_y = region.t + (y_ratio * region.h as f64) as i32;
 
-        self.do_activate();
         sleep(Duration::from_millis(50));
 
         unsafe {
@@ -399,8 +399,7 @@ impl WindowHandle for Win32Window {
     }
 
     fn tap(&mut self, key: &str) {
-        self.do_activate();
-        sleep(Duration::from_millis(100));
+        sleep::jittered_ms(100, 0.3);
 
         let (mods, main_key) = parse_key(key);
 
@@ -409,7 +408,7 @@ impl WindowHandle for Win32Window {
             for &m in &mods {
                 let input = key_input(m, false);
                 SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-                sleep(Duration::from_millis(20));
+                sleep::jittered_ms(20, 0.3);
             }
         }
 
@@ -429,16 +428,14 @@ impl WindowHandle for Win32Window {
             for &m in mods.iter().rev() {
                 let input = key_input(m, true);
                 SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-                sleep(Duration::from_millis(20));
+                sleep::jittered_ms(20, 0.3);
             }
         }
     }
 
     fn type_text(&mut self, text: &str) {
-        self.do_activate();
-        sleep(Duration::from_millis(100));
-        for ch in text.encode_utf16() {
-            self.send_unicode_char(ch);
+        for ch in text.chars() {
+            self.tap(&ch.to_string());
         }
     }
 

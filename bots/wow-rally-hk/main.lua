@@ -48,6 +48,7 @@ local function hint()
         return {}
     end
     -- h is {[0]=raw, [1]=hint, [2]=name, [3]=zone, [4]=cd, [5]=onFlight}
+    F.log("raw hint", h[1], h[2], h[3], h[4], h[5])
     return {
         hint = h[1],
         name = h[2],
@@ -59,9 +60,10 @@ end
 
 -- ── helpers ──────────────────────────────────────────────
 local function logout()
+    win:tap("enter")
     win:type("/logout")
     win:tap("enter")
-    F.sleep(6)
+    F.sleep(26)
 end
 
 local function do_hearth_or_fly()
@@ -83,7 +85,7 @@ local function switch_char(target)
 
     F.log("switch char", c.id, c.name, c.st)
     logout()
-    local dir = target > pos and "down" or "up"
+    local dir = target > pos and "up" or "down"
     for i = 1, math.abs(target - pos) do
         win:tap(dir)
     end

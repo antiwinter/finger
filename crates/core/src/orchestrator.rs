@@ -302,15 +302,17 @@ pub fn orchestrate(
             let Some(bot) = bots.get(id) else { continue };
             bot.set_active(true);
             bot.activate();
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(Duration::from_millis(1000));
 
             let tick_result = bot.tick();
             let status = if tick_result.is_ok() { bot.get_status().ok() } else { None };
             bot.set_active(false);
 
-            if let Ok(ms) = tick_result {
-                let cd = ms.unwrap_or(5000);
-                cooldowns.insert(id.clone(), Instant::now() + Duration::from_millis(cd));
+            if let Ok(s) = tick_result {
+                let cd = s.unwrap_or(5.0);
+                let cd = if cd.is_finite() && cd >= 0.0 { cd } else { 5.0 };
+                logger::info(&format!("next return for {}: {}", id, cd));
+                cooldowns.insert(id.clone(), Instant::now() + Duration::from_secs_f64(cd));
                 let mut entries = state.lock().unwrap();
                 if let Some(inst) = entries.iter_mut()
                     .flat_map(|e| e.instances.iter_mut())

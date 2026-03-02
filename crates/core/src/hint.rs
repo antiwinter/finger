@@ -82,7 +82,7 @@ fn get_nibble(capture: &Capture, x: u32, y: u32) -> u8 {
 /// Decode the hint-v2 color grid from a capture.
 /// return segments of strings
 pub fn decode_hint_v2(capture: &Capture) -> Option<Vec<String>> {
-    save_capture(capture);
+    // save_capture(capture);
 
     let mut nibbles: Vec<u8> = Vec::new();
     let mut rid: u8 = 1;

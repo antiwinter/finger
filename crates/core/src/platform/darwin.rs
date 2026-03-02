@@ -13,6 +13,7 @@ use core_graphics::geometry::*;
 use core_graphics::window::*;
 
 use crate::logger;
+use crate::sleep;
 use crate::types::*;
 use super::{Platform, WindowHandle};
 
@@ -415,7 +416,7 @@ impl WindowHandle for DarwinWindow {
             .status()
             .ok();
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        sleep::jittered_ms(50, 0.3);
     }
 
     fn type_text(&mut self, text: &str) {
