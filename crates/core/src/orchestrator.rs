@@ -311,7 +311,9 @@ pub fn orchestrate(
             if let Ok(s) = tick_result {
                 let cd = s.unwrap_or(5.0);
                 let cd = if cd.is_finite() && cd >= 0.0 { cd } else { 5.0 };
-                logger::info(&format!("next return for {}: {}", id, cd));
+                if cd > 60.0 {
+                     logger::info(&format!("next return for {}: {}", id, cd));
+                }
                 cooldowns.insert(id.clone(), Instant::now() + Duration::from_secs_f64(cd));
                 let mut entries = state.lock().unwrap();
                 if let Some(inst) = entries.iter_mut()

@@ -8,14 +8,13 @@ local win = nil
 local chars = {} -- {[id] = state}
 local pos = 1 -- which char slot we're on (0 = watcher)
 local last_login = 0 -- anti-AFK timer (0 = trigger on first tick)
-local ERR, DONE, WAIT_RALLY, WAIT_HEARTH, WAIT_HK, WATCHER = -1, 0, 1, 2, 3, 4
 local SW, BB = 1453, 1434 -- zone IDs for Stormwind and Booty Bay
 
 local function reset()
     chars = {
         [1] = {
             id = 1,
-            st = WAIT_RALLY
+            st = 'WAIT_RALLY'
         }
     }
     pos = 1
@@ -23,7 +22,8 @@ local function reset()
 end
 reset()
 
-local set_state = function(st, h)
+local function set_state(st, h)
+    F.log((h.name or '') .. ':' .. pos, '->', st)
     chars[pos] = {
         id = pos,
         st = st,
@@ -36,7 +36,7 @@ end
 local function pick(tst)
     for i, c in ipairs(chars) do
         if c.st == tst and -- also check not on cd
-        (c.st ~= WAIT_HEARTH or c.cd < os.time()) then
+        (c.st ~= 'WAIT_HEARTH' or c.cd < os.time()) then
             return c
         end
     end
@@ -47,14 +47,13 @@ local function hint()
     if not h then
         return {}
     end
-    -- h is {[0]=raw, [1]=hint, [2]=name, [3]=zone, [4]=cd, [5]=onFlight}
-    F.log("raw hint", h[1], h[2], h[3], h[4], h[5])
+    -- h is {[0]=raw, [1]=hint, [2]=name, [3]=zone, [4]=cd}
+    -- F.log("hint:", h[1], h[2], h[3], h[4])
     return {
         hint = h[1],
         name = h[2],
         zone = tonumber(h[3]),
-        cd = tonumber(h[4]),
-        onFlight = tonumber(h[5])
+        cd = tonumber(h[4])
     }
 end
 
@@ -63,13 +62,16 @@ local function logout()
     win:tap("enter")
     win:type("/logout")
     win:tap("enter")
-    F.sleep(26)
+    F.sleep(pos == 0 and 6 or 26)
+    last_login = os.time()
 end
 
 local function do_hearth_or_fly()
     -- use item:6948
+    F.log('do hearth/fly')
     win:type("=-====")
     F.sleep(20)
+    last_login = os.time()
 end
 
 local function switch_char(target)
@@ -83,27 +85,26 @@ local function switch_char(target)
         id = 0
     }
 
-    F.log("switch char", c.id, c.name, c.st)
+    F.log("switch to", (c.name or '?') .. ':' .. (c.id or '?'), '(' .. (c.st or '?') .. ')')
     logout()
     local dir = target > pos and "up" or "down"
     for i = 1, math.abs(target - pos) do
         win:tap(dir)
     end
     win:tap("enter")
-    last_login = os.time()
     pos = target
 end
 
 local function test_hk()
+    F.log('test hk')
     F.sleep(45)
     local h = hint()
     if h.hint == "hk" then
-        F.log("got hk for", h.name)
-        set_state(DONE, h)
+        set_state('DONE', h)
     elseif h.zone ~= BB then
-        set_state(ERR, h)
+        set_state('ERR', h)
     else
-        set_state(WAIT_HK, h)
+        set_state('WAIT_HK', h)
     end
 end
 
@@ -113,22 +114,22 @@ local function pick_next()
     -- 2. if any waiting for hk, switch to watcher
     -- 3. if any waiting for rally, switch to it or add new entry
 
-    local c = pick(WAIT_HEARTH)
+    local c = pick('WAIT_HEARTH')
     if c then
         return c.id
     end
 
-    c = pick(WAIT_HK)
+    c = pick('WAIT_HK')
     if c then
         return 0
     end
 
-    c = pick(WAIT_RALLY)
+    c = pick('WAIT_RALLY')
     if not c then
         local n = #chars + 1
         chars[n] = {
             id = n,
-            st = WAIT_RALLY
+            st = 'WAIT_RALLY'
         }
         c = chars[n]
     end
@@ -137,44 +138,42 @@ local function pick_next()
 end
 
 local fsm = {
-    [WAIT_RALLY] = function(h)
+    WAIT_RALLY = function(h)
         if h.hint == 'rally' then
-            F.log("got rally for", h.name)
             do_hearth_or_fly()
             h = hint() -- read hint again
-            if h.onFlight == 1 then
-                set_state(WAIT_HK, h)
-                F.log("fly to bb", h.name)
+            if h.hint == 'taxi' then
+                set_state('WAIT_HK', h)
                 return 240 -- return after 4min
             elseif (h.cd or 0) > 0 then
                 h.cd = os.time() + h.cd
-                set_state(WAIT_HEARTH, h)
+                set_state('WAIT_HEARTH', h)
             else -- not on cd, not flying, cannot get to BB
-                set_state(ERR, h)
+                set_state('ERR', h)
             end
         end
     end,
-    [WAIT_HEARTH] = function(h)
+    WAIT_HEARTH = function(h)
         do_hearth_or_fly()
         test_hk()
     end,
-    [WAIT_HK] = function(h)
+    WAIT_HK = function(h)
         test_hk()
     end,
-    [WATCHER] = function(h)
+    WATCHER = function(h)
         if h.hint == 'hkpre' then
-            local c = pick(WAIT_HK)
+            local c = pick('WAIT_HK')
             if c then
                 switch_char(c.id)
                 test_hk()
             end
         end
     end,
-    [ERR] = function(h)
-        F.log("shouldn't entry", ERR, h.name, h.zone, pos)
+    ERR = function(h)
+        F.log("shouldn't entry", h.name, pos)
     end,
-    [DONE] = function(h)
-        F.log("done for", h.name)
+    DONE = function(h)
+        F.log("shouldn't entry", h.name, pos)
     end
 }
 
@@ -190,9 +189,10 @@ return {
     stop = function()
     end,
     tick = function()
-        local st = chars[pos] and chars[pos].st or WATCHER
+        local st = chars[pos] and chars[pos].st or 'WATCHER'
+        -- F.log("tick", pos, st)
         local n = fsm[st](hint())
-        if not n then 
+        if not n then
             switch_char(pick_next())
         end
         return n
