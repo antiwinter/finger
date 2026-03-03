@@ -444,9 +444,6 @@ impl WindowHandle for Win32Window {
         let region = self.region?;
 
         unsafe {
-            // Bring window forward so PrintWindow works reliably
-            let _ = SetForegroundWindow(self.hwnd.hwnd());
-
             let screen_dc = GetDC(self.hwnd.hwnd());
             if screen_dc.is_invalid() {
                 logger::warn_p("win32", "GetDC failed");
