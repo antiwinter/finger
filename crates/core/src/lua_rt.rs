@@ -78,6 +78,7 @@ pub struct LuaBot {
     win: Rc<RefCell<Box<dyn WindowHandle>>>,
     active: Rc<Cell<bool>>,
     on_error: Arc<dyn Fn(Vec<String>) + Send + Sync>,
+    suspended: Option<LuaRegistryKey>,
 }
 
 /// Format an mlua runtime error: strip `[string "…"]` wrappers and
@@ -196,19 +197,46 @@ impl LuaBot {
                 .map_err(|e| { on_err(format_mlua_error(&e)); lua_err(e) })?;
         }
 
-        Ok(Self { lua, bot_key, win, active, on_error })
+        Ok(Self { lua, bot_key, win, active, on_error, suspended: None })
     }
 
     /// Call tick() -> Option<cooldown_s>. Fires on_error on runtime failure.
-    pub fn tick(&self) -> Result<Option<f64>> {
-        let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
-        let tick_fn: LuaFunction = table.get("tick").map_err(lua_err)?;
-        let result: LuaValue = tick_fn.call(())
+    /// If a previous tick yielded (F.sleep), resumes the parked coroutine.
+    /// Otherwise creates a fresh coroutine wrapping tick().
+    pub fn tick(&mut self) -> Result<Option<f64>> {
+        let co = if let Some(key) = self.suspended.take() {
+            // Resume a parked coroutine from a previous F.sleep yield
+            self.lua.registry_value(&key).map_err(lua_err)?
+        } else {
+            // Fresh tick: wrap tick() in a coroutine
+            let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
+            let tick_fn: LuaFunction = table.get("tick").map_err(lua_err)?;
+            self.lua.create_thread(tick_fn).map_err(lua_err)?
+        };
+
+        let result: LuaMultiValue = co.resume(())
             .map_err(|e| { (self.on_error)(format_mlua_error(&e)); lua_err(e) })?;
-        match result {
-            LuaValue::Integer(s) => Ok(Some(s as f64)),
-            LuaValue::Number(s) => Ok(Some(s)),
-            _ => Ok(None),
+
+        match co.status() {
+            LuaThreadStatus::Resumable => {
+                // F.sleep yielded — first value is the sleep seconds
+                let secs = result.iter().next().and_then(|v| match v {
+                    LuaValue::Number(n) => Some(*n),
+                    LuaValue::Integer(n) => Some(*n as f64),
+                    _ => None,
+                }).unwrap_or(1.0);
+                self.suspended = Some(self.lua.create_registry_value(co).map_err(lua_err)?);
+                Ok(Some(secs))
+            }
+            _ => {
+                // tick() returned normally
+                let val = result.iter().next();
+                match val {
+                    Some(LuaValue::Integer(s)) => Ok(Some(*s as f64)),
+                    Some(LuaValue::Number(s)) => Ok(Some(*s)),
+                    _ => Ok(None),
+                }
+            }
         }
     }
 
@@ -234,8 +262,11 @@ impl LuaBot {
         Ok(())
     }
 
-    /// Call stop()
+    /// Call stop(). Drops any suspended coroutine first.
     pub fn stop(&mut self) -> Result<()> {
+        if let Some(key) = self.suspended.take() {
+            self.lua.remove_registry_value(key).ok();
+        }
         let table: LuaTable = self.lua.registry_value(&self.bot_key).map_err(lua_err)?;
         if let Ok(f) = table.get::<LuaFunction>("stop") {
             f.call::<()>(())
@@ -259,22 +290,19 @@ impl LuaBot {
 fn register_globals(lua: &Lua, tag: &str) -> mlua::Result<()> {
     let f_table = lua.create_table()?;
 
-    // F.sleep(seconds)
-    let sleep_fn = lua.create_function(|_, secs: f64| {
-        let ms = (secs * 1000.0).max(0.0).round() as u64;
-        sleep::ms(ms);
-        Ok(())
-    })?;
-    f_table.set("sleep", sleep_fn)?;
+    // F.sleep(secs, p?) is defined as a Lua function below (after F is set globally)
+    // so it can yield across coroutines. Rust closures cannot yield in mlua.
 
-    // F.sleep_jittered(seconds, percent=0.3)
-    let sleep_jittered_fn = lua.create_function(|_, (secs, percent): (f64, Option<f64>)| {
-        let ms = (secs * 1000.0).max(0.0).round() as u64;
-        let pct = percent.unwrap_or(0.3);
-        sleep::jittered_ms(ms, pct);
+    // F.delay(ms, p?) — blocking sleep, holds the thread (for short pauses between actions)
+    let delay_fn = lua.create_function(|_, (ms, percent): (f64, Option<f64>)| {
+        let ms = ms.max(0.0).round() as u64;
+        match percent {
+            Some(pct) => sleep::jittered_ms(ms, pct),
+            None => sleep::ms(ms),
+        }
         Ok(())
     })?;
-    f_table.set("sleep_jittered", sleep_jittered_fn)?;
+    f_table.set("delay", delay_fn)?;
 
     // F.log(msg) — auto-prefixed with tag from script folder name (blue)
     let tag = tag.to_string();
@@ -299,5 +327,17 @@ fn register_globals(lua: &Lua, tag: &str) -> mlua::Result<()> {
     f_table.set("log", log_fn)?;
 
     lua.globals().set("F", f_table)?;
+
+    // F.sleep(secs, p?) — defined as Lua so it can coroutine.yield
+    lua.load(r#"
+        F.sleep = function(secs, p)
+            if p then
+                coroutine.yield(secs * (1 + (math.random() * 2 - 1) * p))
+            else
+                coroutine.yield(secs)
+            end
+        end
+    "#).exec()?;
+
     Ok(())
 }

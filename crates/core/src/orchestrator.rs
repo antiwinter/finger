@@ -299,7 +299,7 @@ pub fn orchestrate(
                 break;
             }
 
-            let Some(bot) = bots.get(id) else { continue };
+            let Some(bot) = bots.get_mut(id) else { continue };
             bot.set_active(true);
             bot.activate();
             std::thread::sleep(Duration::from_millis(1000));
