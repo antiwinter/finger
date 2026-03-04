@@ -2,7 +2,7 @@ use crate::types::Capture;
 
 /// Save capture data for debugging.
 /// Writes decoded nibbles as hex, raw RGB values, and a PNG to logs/.
-/// Only compiled when the `debug-capture` feature is enabled.
+#[allow(dead_code)]
 fn save_capture(capture: &Capture) {
     use std::fmt::Write as _;
     use std::fs;

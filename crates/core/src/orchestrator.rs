@@ -253,6 +253,8 @@ pub fn orchestrate(
     let mut cooldowns: HashMap<String, Instant> = HashMap::new();
 
     loop {
+        std::thread::sleep(Duration::from_millis(100));
+
         if !process_commands(&cmd_rx, &state, &orch_state, platform.as_ref(), &mut bots, &mut cooldowns) {
             return;
         }
@@ -270,7 +272,6 @@ pub fn orchestrate(
             continue;
         }
         if current != OrchestratorState::Running {
-            std::thread::sleep(Duration::from_millis(100));
             continue;
         }
 
@@ -302,7 +303,7 @@ pub fn orchestrate(
             let Some(bot) = bots.get_mut(id) else { continue };
             bot.set_active(true);
             bot.activate();
-            std::thread::sleep(Duration::from_millis(1000));
+            std::thread::sleep(Duration::from_millis(500));
 
             let tick_result = bot.tick();
             let status = if tick_result.is_ok() { bot.get_status().ok() } else { None };
@@ -342,7 +343,5 @@ pub fn orchestrate(
             if let Some(mut bot) = bots.remove(&id) { bot.stop().ok(); }
             cooldowns.remove(&id);
         }
-
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
