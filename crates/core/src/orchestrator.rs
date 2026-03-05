@@ -212,27 +212,27 @@ fn process_commands(
                     OrchestratorState::Stopped => {}
                 }
             }
-            Command::Restart(idx) => {
+            Command::Restart(_) => {
                 let is_running = *orch_state.lock().unwrap() == OrchestratorState::Running;
                 if !is_running { continue; }
 
+                logger::info("restarting all bots");
                 let entries = state.lock().unwrap();
-                let Some(entry) = entries.get(idx) else { continue };
-                if !entry.enabled { continue; }
-
-                logger::info(&format!("restarting bot {}", entry.name));
-                for inst in &entry.instances {
-                    if let Some(mut b) = bots.remove(&inst.id) {
-                        b.stop().ok();
-                    }
-                    cooldowns.remove(&inst.id);
-                    match LuaBot::new(
-                        &entry.script_path, &inst.id,
-                        platform.create_window(&entry.window_pattern, inst.window_id),
-                        make_on_error(inst.id.clone(), Arc::clone(&state)),
-                    ) {
-                        Ok(bot) => { bots.insert(inst.id.clone(), bot); }
-                        Err(_) => {} // on_error already fired inside lua_rt
+                for entry in entries.iter() {
+                    if !entry.enabled { continue; }
+                    for inst in &entry.instances {
+                        if let Some(mut b) = bots.remove(&inst.id) {
+                            b.stop().ok();
+                        }
+                        cooldowns.remove(&inst.id);
+                        match LuaBot::new(
+                            &entry.script_path, &inst.id,
+                            platform.create_window(&entry.window_pattern, inst.window_id),
+                            make_on_error(inst.id.clone(), Arc::clone(&state)),
+                        ) {
+                            Ok(bot) => { bots.insert(inst.id.clone(), bot); }
+                            Err(_) => {} // on_error already fired inside lua_rt
+                        }
                     }
                 }
             }

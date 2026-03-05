@@ -24,12 +24,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     // -- Left panel: bot list --
 
     // Orchestrator state banner (rendered separately as full-width bar)
-    let (banner_label, banner_bg) = {
+    let (banner_label, banner_bg, is_stopped) = {
         let orch = app.orch_state.lock().unwrap();
         match *orch {
-            OrchestratorState::Running => ("RUNNING (Press S to stop)", Color::Green),
-            OrchestratorState::Stopping => ("STOPPING...", Color::Yellow),
-            OrchestratorState::Stopped => ("STOPPED (Press S to start)", Color::Red),
+            OrchestratorState::Running  => ("RUNNING (Press K to stop)",  Color::Green,  false),
+            OrchestratorState::Stopping => ("STOPPING...",                 Color::Yellow, false),
+            OrchestratorState::Stopped  => ("STOPPED (Press K to start)",  Color::Red,    true),
         }
     };
 
@@ -40,16 +40,14 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // Help line as first content line inside the bordered panel
     lines.push(Line::from(vec![
-        Span::styled(" j", Style::default().fg(Color::Yellow)),
-        Span::raw("/"),
+        Span::styled(" ↑↓", Style::default().fg(Color::Yellow)),
+        Span::raw(" move  "),
         Span::styled("k", Style::default().fg(Color::Yellow)),
-        Span::raw("/"),
+        Span::raw(" start/stop  "),
         Span::styled("space", Style::default().fg(Color::Yellow)),
-        Span::raw(" to select, "),
+        Span::raw(" select  "),
         Span::styled("r", Style::default().fg(Color::Yellow)),
-        Span::raw(" to reset, "),
-        Span::styled("m", Style::default().fg(Color::Yellow)),
-        Span::raw(if app.mouse_capture { " mouse (scroll)" } else { " mouse (select)" }),
+        Span::raw(" restart"),
     ]));
     lines.push(Line::from(""));
 
@@ -60,8 +58,11 @@ pub fn draw(f: &mut Frame, app: &App) {
             let is_selected = i == app.selected;
             let prefix = if is_selected { "> " } else { "  " };
 
-            let checkbox = if entry.enabled { "[●]" } else { "[ ]" };
-            let check_color = banner_bg;
+            let (checkbox, check_color) = if is_stopped && entry.enabled {
+                (" ● ", banner_bg)
+            } else {
+                ("   ", Color::Reset)
+            };
 
             // Bot header line: checkbox + name + description
             let name = entry.name.clone();

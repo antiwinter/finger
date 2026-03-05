@@ -115,19 +115,24 @@ impl App {
         self.cmd_tx.send(Command::StartStop).ok();
     }
 
-    pub fn restart_selected(&mut self) {
-        let name = {
-            let entries = self.state.lock().unwrap();
-            entries.get(self.selected).map(|e| e.name.clone())
-        };
-        if let Some(name) = name {
-            self.confirm = Some(ConfirmDialog::new(format!("Restart bot \"{}\"?", name)));
-        }
+    pub fn is_stopped(&self) -> bool {
+        *self.orch_state.lock().unwrap() == OrchestratorState::Stopped
+    }
+
+    pub fn restart_all(&mut self) {
+        self.confirm = Some(ConfirmDialog::new("Restart all bots?"));
+    }
+
+    pub fn clear_logs(&mut self) {
+        self.log_messages.clear();
+        self.log_scroll = 0;
+        finger_core::logger::clear_file();
     }
 
     pub fn confirm_restart(&mut self) {
         self.confirm = None;
-        self.cmd_tx.send(Command::Restart(self.selected)).ok();
+        self.clear_logs();
+        self.cmd_tx.send(Command::Restart(0)).ok();
     }
 
     pub fn cancel_confirm(&mut self) {

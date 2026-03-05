@@ -49,10 +49,15 @@ pub fn run(
                     // If confirm dialog is open, route input there
                     if app.confirm.is_some() {
                         match key.code {
-                            KeyCode::Left | KeyCode::Right
-                            | KeyCode::Char('h') | KeyCode::Char('l')
-                            | KeyCode::Tab => {
+                            KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                                 app.confirm.as_mut().unwrap().toggle();
+                            }
+                            KeyCode::Char('y') | KeyCode::Char('Y')
+                            | KeyCode::Char('r') | KeyCode::Char('R') => {
+                                app.confirm_restart();
+                            }
+                            KeyCode::Char('n') | KeyCode::Char('N') => {
+                                app.cancel_confirm();
                             }
                             KeyCode::Enter => {
                                 if app.confirm.as_ref().unwrap().selected {
@@ -73,20 +78,22 @@ pub fn run(
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             app.quit();
                         }
-                        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                        KeyCode::Up => {
                             app.move_up();
                         }
-                        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                        KeyCode::Down => {
                             app.move_down();
                         }
-                        KeyCode::Char(' ') => {
-                            app.toggle_selected();
-                        }
-                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                        KeyCode::Char('k') | KeyCode::Char('K') => {
                             app.start_stop();
                         }
+                        KeyCode::Char(' ') => {
+                            if app.is_stopped() {
+                                app.toggle_selected();
+                            }
+                        }
                         KeyCode::Char('r') | KeyCode::Char('R') => {
-                            app.restart_selected();
+                            app.restart_all();
                         }
                         KeyCode::Char('l') | KeyCode::Char('L') => {
                             app.toggle_log();

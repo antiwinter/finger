@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{mpsc, Mutex, OnceLock};
 use chrono::Local;
@@ -31,6 +31,15 @@ pub fn init(log_dir: &Path) {
     LOGGER
         .set(Mutex::new(Logger { file, tui_tx: None, prefixes: HashMap::new() }))
         .ok();
+}
+
+/// Truncate the log file (clears all previous entries).
+pub fn clear_file() {
+    if let Some(logger) = LOGGER.get() {
+        let mut l = logger.lock().unwrap();
+        l.file.set_len(0).ok();
+        l.file.seek(SeekFrom::Start(0)).ok();
+    }
 }
 
 /// Wire the TUI log channel.

@@ -15,7 +15,7 @@ impl ConfirmDialog {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            selected: false, // default to No
+            selected: true, // default to Yes
         }
     }
 
